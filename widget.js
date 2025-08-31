@@ -220,7 +220,7 @@ const $folderDefaultViewMode = document.getElementById("folderDefaultViewMode");
 const $footerTransparent = document.getElementById("footerTransparent");
 const $widgetBgTransparent = document.getElementById("widgetBgTransparent");
 const $showTitlesInline = document.getElementById("showTitles");
-const $autoFavicon = document.getElementById("autoFavicon");
+const $showChromeFolders = document.getElementById("showChromeFolders");
 const $themeToggleInline = document.getElementById("themeToggleInline");
 const $themeIconToggleInline = document.getElementById("themeIconToggleInline");
 const $syncBookmarksInline = null;
@@ -1196,7 +1196,17 @@ async function render(orderOverride=null, prevRects=null){
   // Если мы в корневой папке, рендерим смешанный список (папки + закладки)
   let mixedRootRendered = false;
   if ((currentFolderId === null || currentFolderId === undefined)) {
-    const folders = await getFoldersForCurrentFolder();
+    let folders = await getFoldersForCurrentFolder();
+    try{
+      const st = await chrome.storage.local.get(SHOW_CHROME_FOLDERS_KEY);
+      const showChromeFolders = !!(st?.[SHOW_CHROME_FOLDERS_KEY] ?? true);
+      if (!showChromeFolders){
+        const maps = await chrome.storage.local.get('map_folder_e2c');
+        const extToChrome = maps?.['map_folder_e2c'] || {};
+        const HIDE_SET = new Set(['1','2']);
+        folders = folders.filter(f => !HIDE_SET.has(String(extToChrome[f.id] || '')));
+      }
+    }catch{}
     const rootLinks = links; // уже получены выше
     // Применяем вид для корня по настройке
     let rootMode = 'grid';
@@ -1490,7 +1500,17 @@ async function render(orderOverride=null, prevRects=null){
   // Рендерим закладки и папки (если не отрисовали смешанный корень)
   if (!mixedRootRendered) {
     // Получаем папки и строим смешанный порядок
-    const folders = await getFoldersForCurrentFolder();
+    let folders = await getFoldersForCurrentFolder();
+    try{
+      const st = await chrome.storage.local.get(SHOW_CHROME_FOLDERS_KEY);
+      const showChromeFolders = !!(st?.[SHOW_CHROME_FOLDERS_KEY] ?? true);
+      if (!showChromeFolders){
+        const maps = await chrome.storage.local.get('map_folder_e2c');
+        const extToChrome = maps?.['map_folder_e2c'] || {};
+        const HIDE_SET = new Set(['1','2']);
+        folders = folders.filter(f => !HIDE_SET.has(String(extToChrome[f.id] || '')));
+      }
+    }catch{}
     // Определяем режим вида для текущей папки
     let __folderViewMode = 'grid';
     try{ __folderViewMode = await getFolderViewMode(currentFolderId); }catch{}
@@ -1904,16 +1924,16 @@ function gatherControlsState(){
   const faviconSaturation = clampSaturationPercent($faviconSaturationInput?.value ?? $faviconSaturationRange?.value ?? 100);
   const maxCols = clampMaxCols($maxColsInput?.value ?? $maxColsRange?.value ?? 5);
   const showTitles = !!($showTitlesInline?.checked);
-  const autoFavicon = !!($autoFavicon?.checked);
+  const showChromeFolders = !!($showChromeFolders?.checked);
   const bgTransparent = !!($widgetBgTransparent?.checked);
   const footerTransparent = !!($footerTransparent?.checked);
   const theme = $themeToggleInline?.checked ? 'light' : 'dark';
   const iconTheme = $themeIconToggleInline?.checked ? 'light' : 'dark';
-  return { tilePercent, listIconPercent, rootViewMode, folderDefaultViewMode, tileOpacity, folderOpacity, tileGapPercent, faviconSaturation, maxCols, showTitles, autoFavicon, bgTransparent, footerTransparent, theme, iconTheme };
+  return { tilePercent, listIconPercent, rootViewMode, folderDefaultViewMode, tileOpacity, folderOpacity, tileGapPercent, faviconSaturation, maxCols, showTitles, showChromeFolders, bgTransparent, footerTransparent, theme, iconTheme };
 }
 function shallowEqualSettings(a,b){
   if(!a||!b) return false;
-  const keys=["tilePercent","listIconPercent","rootViewMode","folderDefaultViewMode","tileOpacity","folderOpacity","tileGapPercent","faviconSaturation","maxCols","showTitles","autoFavicon","bgTransparent","footerTransparent","theme","iconTheme"];
+  const keys=["tilePercent","listIconPercent","rootViewMode","folderDefaultViewMode","tileOpacity","folderOpacity","tileGapPercent","faviconSaturation","maxCols","showTitles","showChromeFolders","bgTransparent","footerTransparent","theme","iconTheme"];
   return keys.every(k => (a[k] ?? null) === (b[k] ?? null));
 }
 async function commitSettings(){
@@ -1928,7 +1948,7 @@ async function commitSettings(){
     [FAVICON_SATURATION_KEY]: s.faviconSaturation,
     [MAX_COLS_KEY]: s.maxCols,
     [SHOW_TITLES_KEY]: !!s.showTitles,
-    [AUTO_FAVICON_KEY]: !!s.autoFavicon,
+    [SHOW_CHROME_FOLDERS_KEY]: !!s.showChromeFolders,
     [BG_TRANSPARENT_KEY]: !!s.bgTransparent,
     [FOOTER_TRANSPARENT_KEY]: !!s.footerTransparent,
     [THEME_KEY]: s.theme,
@@ -1939,6 +1959,7 @@ async function commitSettings(){
   applyListIconPercentUser(s.listIconPercent, {save:false});
   settingsBaseline = s;
   markDirty(false);
+  try{ await render(); }catch{}
   // Закрыть панель настроек после сохранения
   closeSettingsPanel();
 }
@@ -1953,7 +1974,7 @@ async function revertSettings(){
     [FAVICON_SATURATION_KEY]: 100,
     [MAX_COLS_KEY]: 5,
     [SHOW_TITLES_KEY]: false,
-    [AUTO_FAVICON_KEY]: true,
+    [SHOW_CHROME_FOLDERS_KEY]: true,
     [BG_TRANSPARENT_KEY]: false,
     [FOOTER_TRANSPARENT_KEY]: false,
     [THEME_KEY]: 'dark',
@@ -1970,7 +1991,7 @@ async function revertSettings(){
     faviconSaturation: clampSaturationPercent(st[FAVICON_SATURATION_KEY]),
     maxCols: clampMaxCols(st[MAX_COLS_KEY]),
     showTitles: !!st[SHOW_TITLES_KEY],
-    autoFavicon: !!st[AUTO_FAVICON_KEY],
+    showChromeFolders: !!st[SHOW_CHROME_FOLDERS_KEY],
     bgTransparent: !!st[BG_TRANSPARENT_KEY],
     footerTransparent: !!st[FOOTER_TRANSPARENT_KEY],
     theme: st[THEME_KEY] || 'dark',
@@ -2010,7 +2031,7 @@ async function revertSettings(){
   if ($maxColsRange) $maxColsRange.value = String(s.maxCols);
   if ($maxColsInput) $maxColsInput.value = String(s.maxCols);
   if ($showTitlesInline) $showTitlesInline.checked = !!s.showTitles;
-  if ($autoFavicon) $autoFavicon.checked = !!s.autoFavicon;
+  if ($showChromeFolders) $showChromeFolders.checked = !!s.showChromeFolders;
   if ($themeIconToggleInline) $themeIconToggleInline.checked = (s.iconTheme === 'light');
   if ($widgetBgTransparent) $widgetBgTransparent.checked = !!s.bgTransparent;
   if ($footerTransparent) $footerTransparent.checked = !!s.footerTransparent;
@@ -3754,7 +3775,8 @@ const ROOT_VIEW_MODE_KEY = "rootViewMode"; // 'grid' | 'list'
 const FOLDER_DEFAULT_VIEW_MODE_KEY = "folderDefaultViewMode"; // 'grid' | 'list'
 const TILE_OPACITY_KEY = "tileOpacity"; // user-facing 0..100
 const FOLDER_OPACITY_KEY = "folderOpacity"; // user-facing 0..100
-const AUTO_FAVICON_KEY = "autoFavicon"; // boolean, default true
+const AUTO_FAVICON_KEY = "autoFavicon"; // legacy, kept for import/export compat
+const SHOW_CHROME_FOLDERS_KEY = "showChromeFolders"; // boolean, default true
 const FAVICON_SATURATION_KEY = "faviconSaturation"; // user-facing 0..100
 const TILE_GAP_PERCENT_KEY = "tileGapPercent"; // user-facing 0..100
 const TILE_GAP_DEFAULT = 50; // 50% = базовый отступ
@@ -3964,8 +3986,8 @@ async function init(){
       // Show titles выкл
       await chrome.storage.local.set({ [SHOW_TITLES_KEY]: false });
       
-      // Auto favicon вкл
-      await chrome.storage.local.set({ [AUTO_FAVICON_KEY]: true });
+      // Show Chrome folders вкл (по умолчанию показываем)
+      await chrome.storage.local.set({ [SHOW_CHROME_FOLDERS_KEY]: true });
       
       // Theme и Theme icon автоматически подстраиваются под браузер
       // Определяем тему браузера
@@ -4215,9 +4237,9 @@ async function syncSettingsInputsFromStorage(){
     if ($showTitlesInline) $showTitlesInline.checked = on;
   }catch{}
   try{
-    const st = await chrome.storage.local.get(AUTO_FAVICON_KEY);
-    const on = !!(st?.[AUTO_FAVICON_KEY] ?? true); // По умолчанию true
-    if ($autoFavicon) $autoFavicon.checked = on;
+    const st = await chrome.storage.local.get(SHOW_CHROME_FOLDERS_KEY);
+    const on = !!(st?.[SHOW_CHROME_FOLDERS_KEY] ?? true);
+    if ($showChromeFolders) $showChromeFolders.checked = on;
   }catch{}
   try{
     const st = await chrome.storage.local.get(THEME_KEY);
@@ -4254,7 +4276,7 @@ function openSettingsPanel(){
     attach('label[for="rootViewMode"]', 'Default view for root (main screen).');
     attach('label[for="folderDefaultViewMode"]', 'Default view for new folders.');
     attach('label[for="showTitles"]', 'Show text captions under tiles.');
-    attach('label[for="autoFavicon"]', 'Automatically try to fetch a favicon from the site.');
+    attach('label[for="showChromeFolders"]', 'Show Chrome-synced root folders in the root view.');
     attach('label[for="themeIconToggleInline"]', 'Switch the extension toolbar icon theme.');
     attach('label[for="themeToggleInline"]', 'Switch between light and dark theme.');
   }catch{}
@@ -4429,6 +4451,7 @@ async function exportLinks(){
         tilePercent,
         tileOpacity,
         folderOpacity,
+        // autoFavicon removed from UI but kept in export for backward compat
         autoFavicon,
         faviconSaturation,
         maxCols,
@@ -4543,10 +4566,10 @@ function importLinks(){
             if ($folderOpacityRange) $folderOpacityRange.value = String(fo);
             if ($folderOpacityInput) $folderOpacityInput.value = String(fo);
           }
+          // legacy: settings.autoFavicon is ignored in UI; preserve value silently
           if (typeof settings.autoFavicon !== 'undefined'){
             const af = !!settings.autoFavicon;
             chrome.storage.local.set({ [AUTO_FAVICON_KEY]: af }).catch(()=>{});
-            if ($autoFavicon) $autoFavicon.checked = af;
           }
           if (typeof settings.faviconSaturation !== 'undefined'){
             const fs = clampSaturationPercent(settings.faviconSaturation);
@@ -4817,11 +4840,12 @@ if ($showTitlesInline){
     try{ chrome.runtime.sendMessage({ type:'showTitlesChanged', on }); }catch{}
   });
 }
-if ($autoFavicon){
-  $autoFavicon.addEventListener('change', ()=>{
-    const on = !!$autoFavicon.checked;
-    chrome.storage.local.set({ [AUTO_FAVICON_KEY]: on }).catch(()=>{});
+if ($showChromeFolders){
+  $showChromeFolders.addEventListener('change', ()=>{
+    const on = !!$showChromeFolders.checked;
+    chrome.storage.local.set({ [SHOW_CHROME_FOLDERS_KEY]: on }).catch(()=>{});
     if (settingsBaseline) markDirty(!shallowEqualSettings(gatherControlsState(), settingsBaseline));
+    try{ render(); }catch{}
   });
 }
 if ($themeToggleInline){
