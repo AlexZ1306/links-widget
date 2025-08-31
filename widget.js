@@ -2034,31 +2034,45 @@ function openEditorOverlay(item){
 
   const previewBox=document.createElement("div"); previewBox.className="preview"; previewBox.title="Загрузить файл";
   const prevImg=document.createElement("img"); prevImg.alt="";
-  prevImg.src=item.favicon||DEFAULT_ICON;
-  prevImg.classList.toggle('mono', (item.iconTone||null)==='mono');
-  
-  // Добавляем обработчик ошибок для изображения
-  prevImg.onerror = () => {
-    console.error('Ошибка загрузки иконки:', prevImg.src);
-    if (prevImg.src !== DEFAULT_ICON) {
-      // Если не удалось загрузить иконку закладки, используем дефолтную
-      prevImg.src = DEFAULT_ICON;
-    } else {
-      // Если не удалось загрузить дефолтную иконку, попробуем загрузить как data URL
-      fetch(DEFAULT_ICON)
-        .then(response => response.blob())
-        .then(blob => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            prevImg.src = reader.result;
-          };
-          reader.readAsDataURL(blob);
-        })
-        .catch(err => {
-          console.error('Не удалось загрузить дефолтную иконку:', err);
-        });
-    }
-  };
+  // Предпросмотр должен отражать фактически используемый фавикон
+  let useAutoPreview = false;
+  if (item.iconCustom && item.favicon){
+    prevImg.src = item.favicon;
+    prevImg.classList.toggle('mono', (item.iconTone||null)==='mono');
+  } else if (item.favicon && String(item.favicon).startsWith('data:')){
+    prevImg.src = item.favicon;
+    prevImg.classList.toggle('mono', (item.iconTone||null)==='mono');
+  } else {
+    // Для несохранённых иконок показываем авто-фавикон как в рендере
+    useAutoPreview = true;
+    prevImg.classList.remove('mono');
+    try{ setFaviconWithFallback(prevImg, item.url, 64); }catch{ prevImg.src = DEFAULT_ICON; }
+  }
+
+  // Добавляем обработчик ошибок только для не-авто превью, чтобы не ломать fallback
+  if (!useAutoPreview){
+    prevImg.onerror = () => {
+      console.error('Ошибка загрузки иконки:', prevImg.src);
+      if (prevImg.src !== DEFAULT_ICON) {
+        // Если не удалось загрузить иконку закладки, используем дефолтную
+        prevImg.src = DEFAULT_ICON;
+      } else {
+        // Если не удалось загрузить дефолтную иконку, попробуем загрузить как data URL
+        fetch(DEFAULT_ICON)
+          .then(response => response.blob())
+          .then(blob => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              prevImg.src = reader.result;
+            };
+            reader.readAsDataURL(blob);
+          })
+          .catch(err => {
+            console.error('Не удалось загрузить дефолтную иконку:', err);
+          });
+      }
+    };
+  }
   previewBox.appendChild(prevImg);
 
   const btnPick = toolBtn(SVG_GRID,   "Выбрать из набора");
