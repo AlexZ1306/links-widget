@@ -2197,8 +2197,12 @@ function openEditorOverlay(item){
     });
   });
   btnRes.addEventListener("click", ()=>{
-    currentIcon = DEFAULT_ICON; currentTone=null;
-    prevImg.src = DEFAULT_ICON; prevImg.classList.remove('mono');
+    // Сбрасываем к стандартной авто-системе и обновляем предпросмотр так же, как в рендере
+    currentIcon = null; currentTone = null; currentIconCustom = false;
+    prevImg.classList.remove('mono');
+    let u = (inUrl?.value||'').trim(); if(!/^https?:\/\//i.test(u)) u = 'https://'+u;
+    try{ new URL(u); setFaviconWithFallback(prevImg, u, 64); }
+    catch{ try{ setFaviconWithFallback(prevImg, item.url, 64); }catch{ prevImg.src = DEFAULT_ICON; } }
   });
 
   del.addEventListener("click", async ()=>{
