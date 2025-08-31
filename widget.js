@@ -2715,7 +2715,9 @@ function openAddOverlay(){
       favicon:finalIcon, 
       iconCustom: !!currentIconCustom,
       iconTone: currentTone,
-      folderId: selectedFolderId
+      folderId: selectedFolderId,
+      // Синхронизацию с браузером включаем только если выбрана папка (не корень)
+      syncToChrome: !!selectedFolderId
     });
     await setLinks(arr);
     try{ chrome.runtime.sendMessage({ type:'extAddLink', link: arr[arr.length-1] }); }catch{}
@@ -3361,7 +3363,8 @@ async function openAddCurrentPageOverlay() {
       favicon:finalIcon, 
       iconCustom: !!currentIconCustom,
       iconTone: currentTone,
-      folderId: selectedFolderId
+      folderId: selectedFolderId,
+      syncToChrome: !!selectedFolderId
     });
     await setLinks(arr);
     editorOpen = false; editorKind = null;

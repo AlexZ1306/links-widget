@@ -141,6 +141,8 @@ async function getDefaultParentChromeFolderId(){
 }
 async function extAddLink(link){
   const { [SYNC_BOOKMARKS_KEY]: on=false } = await chrome.storage.local.get(SYNC_BOOKMARKS_KEY); if(!on) return;
+  // Если явно указано, что запись не должна синхронизироваться (корень расширения)
+  if (link && link.syncToChrome === false){ return; }
   const maps = await getMaps();
   // Если уже есть привязка extId -> chromeId, ничего не делаем (защита от дублей)
   if (maps.linkE2C?.[link.id]) return;
