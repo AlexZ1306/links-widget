@@ -2106,8 +2106,16 @@ function openEditorOverlay(item){
   frIcon.innerHTML='<label>Icon URL</label>';
   const inIconUrl=document.createElement("input"); inIconUrl.type="url"; inIconUrl.placeholder="https://example.com/icon.png";
   frIcon.appendChild(inIconUrl);
-  // Предзаполнить URL, если текущая иконка — http(s)
-  try{ if(/^https?:\/\//i.test(String(item.favicon||''))) inIconUrl.value = String(item.favicon); }catch{}
+  // Предзаполнить URL: если сохранён кастомный http(s) — показываем его, иначе показываем авто-URL для наглядности
+  try{
+    if(/^https?:\/\//i.test(String(item.favicon||''))){
+      inIconUrl.value = String(item.favicon);
+    } else {
+      try{ inIconUrl.value = runtimeFaviconUrl(item.url, 64); inIconUrl.dataset.autofill = '1'; }catch{}
+    }
+  }catch{}
+  // Если пользователь начнёт редактировать поле — считаем это пользовательским вводом
+  inIconUrl.addEventListener('input', ()=>{ try{ delete inIconUrl.dataset.autofill; }catch{} });
 
   const actions=document.createElement("div"); actions.className="actions";
   const del=document.createElement("button"); del.className="danger"; del.textContent="Delete";
@@ -2243,7 +2251,7 @@ function openEditorOverlay(item){
     // Если введён URL иконки, но не успели выйти из поля, учитываем его
     (function(){
       let v=(inIconUrl?.value||'').trim();
-      if(v){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; currentIconCustom=true; } }catch{} }
+      if(v && String(inIconUrl?.dataset?.autofill) !== '1'){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; currentIconCustom=true; } }catch{} }
     })();
     const arr=await getLinks(); const i=arr.findIndex(x=>x.id===item.id);
     if(i>=0){
@@ -2708,13 +2716,25 @@ function openAddOverlay(){
       restoreWidthByLinks();
     }
   });
+  // Авто‑подстановка визуального URL в Icon URL при вводе URL сайта
+  inUrl.addEventListener('blur', ()=>{
+    try{
+      const v = (inUrl.value||'').trim(); if(!v) return;
+      let u = v; if(!/^https?:\/\//i.test(u)) u = 'https://'+u;
+      new URL(u);
+      // показываем авто‑favicon в поле (визуально), но помечаем как autofill
+      inIconUrl.value = runtimeFaviconUrl(u, 64);
+      inIconUrl.dataset.autofill = '1';
+    }catch{}
+  });
+
   save.addEventListener("click", async ()=>{
     let url=inUrl.value.trim(); if(!/^https?:\/\//i.test(url)) url="https://"+url; try{ new URL(url); }catch{ return; }
     
     // Если введён URL иконки, но не успели выйти из поля, учитываем его
     (function(){
       let v=(inIconUrl?.value||'').trim();
-      if(v){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; currentIconCustom=true; } }catch{} }
+      if(v && String(inIconUrl?.dataset?.autofill) !== '1'){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; currentIconCustom=true; } }catch{} }
     })();
     
     // Единая система: не подставляем авто-фавикон в сохранённые данные;
