@@ -1,0 +1,15 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+# Archives / build
+dist/
+build/
+*.zip
+*.crx
+# Keys
+*.pem
+# Logs
+npm-debug.log*
+yarn-error.log*
