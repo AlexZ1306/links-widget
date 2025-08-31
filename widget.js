@@ -4365,7 +4365,11 @@ function onFaviconSaturationNumberCommit(){
 
 async function exportLinks(){
   try{
-    const links = await getLinks();
+    const linksAll = await getLinks();
+    // Only root-level custom links (exclude Chrome-synced and nested)
+    let mapLinkE2C = {};
+    try{ const st = await chrome.storage.local.get('map_link_e2c'); mapLinkE2C = st?.['map_link_e2c'] || {}; }catch{}
+    const links = linksAll.filter(x=> !x?.folderId && !mapLinkE2C[x?.id]);
     let tilePercent = 60;
     try{
       const st = await chrome.storage.local.get(TILE_PERCENT_KEY);
@@ -4401,8 +4405,20 @@ async function exportLinks(){
       const st = await chrome.storage.local.get(SHOW_TITLES_KEY);
       showTitles = !!(st?.[SHOW_TITLES_KEY]);
     }catch{}
-    // Получаем папки
-    const folders = await getFolders();
+    // Additional settings
+    let listIconPercent = 60;
+    try{ const st = await chrome.storage.local.get(LIST_ICON_PERCENT_KEY); listIconPercent = clampUserPercent(st?.[LIST_ICON_PERCENT_KEY] ?? 60); }catch{}
+    let rootViewMode = 'grid';
+    try{ const st = await chrome.storage.local.get(ROOT_VIEW_MODE_KEY); rootViewMode = (st?.[ROOT_VIEW_MODE_KEY]==='list')?'list':'grid'; }catch{}
+    let folderDefaultViewMode = 'grid';
+    try{ const st = await chrome.storage.local.get(FOLDER_DEFAULT_VIEW_MODE_KEY); folderDefaultViewMode = (st?.[FOLDER_DEFAULT_VIEW_MODE_KEY]==='list')?'list':'grid'; }catch{}
+    let tileGapPercent = 50;
+    try{ const st = await chrome.storage.local.get(TILE_GAP_PERCENT_KEY); tileGapPercent = clampGapPercent(st?.[TILE_GAP_PERCENT_KEY] ?? TILE_GAP_DEFAULT); }catch{}
+    let theme = 'dark';
+    try{ const st = await chrome.storage.local.get(THEME_KEY); theme = st?.[THEME_KEY] || 'dark'; }catch{}
+    let iconTheme = 'dark';
+    try{ const st = await chrome.storage.local.get(ICON_THEME_KEY); iconTheme = st?.[ICON_THEME_KEY] || 'dark'; }catch{}
+    // Folders are not exported per new rules
     // Заглушки для групп и lastGroupId (будущие сущности)
     const { groups = [], lastGroupId = null } = await chrome.storage.local.get(["groups","lastGroupId"]).catch(()=>({}));
     const groupsArr = Array.isArray(groups) ? groups : [];
@@ -4417,11 +4433,17 @@ async function exportLinks(){
         faviconSaturation,
         maxCols,
         showTitles,
+        listIconPercent,
+        rootViewMode,
+        folderDefaultViewMode,
+        tileGapPercent,
+        theme,
+        iconTheme,
         bgTransparent: !!(await chrome.storage.local.get(BG_TRANSPARENT_KEY).then(x=>x?.[BG_TRANSPARENT_KEY]).catch(()=>false)),
         footerTransparent: !!(await chrome.storage.local.get(FOOTER_TRANSPARENT_KEY).then(x=>x?.[FOOTER_TRANSPARENT_KEY]).catch(()=>false)),
       },
       links: links.map((x, index)=> ({ ...x, index })),
-      folders: folders.map((f, index)=> ({ ...f, index })),
+      folders: [],
       groups: groupsArr.map(g=>({ id:g.id, name:g.name, index:g.index })),
       lastGroupId
     };
@@ -4496,11 +4518,14 @@ function importLinks(){
             alert('Неверный формат: отсутствует массив "links".');
             return;
           }
-          if (!confirm('Импорт заменит текущие ссылки и папки. Продолжить?')) return;
-          await setLinks(linksArr);
-          if (foldersArr.length > 0) {
-            await setFolders(foldersArr);
-          }
+          if (!confirm('Импорт заменит корневые пользовательские ссылки. Продолжить?')) return;
+          // Replace only root-level custom links; keep Chrome-synced and nested
+          const stNow = await chrome.storage.local.get([LINKS_KEY, 'map_link_e2c']);
+          const current = Array.isArray(stNow[LINKS_KEY]) ? stNow[LINKS_KEY] : [];
+          const mapE2C = stNow['map_link_e2c'] || {};
+          const kept = current.filter(x => x?.folderId || mapE2C[x?.id]);
+          const sanitized = linksArr.map(x => ({ ...x, folderId: null }));
+          await setLinks([...kept, ...sanitized]);
           // применяем настройки
           if (typeof settings.tilePercent !== 'undefined'){
             const user = clampUserPercent(settings.tilePercent);
@@ -4535,10 +4560,42 @@ function importLinks(){
             if ($maxColsRange) $maxColsRange.value = String(mc);
             if ($maxColsInput) $maxColsInput.value = String(mc);
           }
+          if (typeof settings.listIconPercent !== 'undefined'){
+            const lp = clampUserPercent(settings.listIconPercent);
+            applyListIconPercentUser(lp, {save:true});
+            if ($listIconSizeRange) $listIconSizeRange.value = String(lp);
+            if ($listIconSizeInput) $listIconSizeInput.value = String(lp);
+          }
+          if (typeof settings.rootViewMode !== 'undefined'){
+            const rv = (settings.rootViewMode === 'list') ? 'list' : 'grid';
+            await chrome.storage.local.set({ [ROOT_VIEW_MODE_KEY]: rv });
+            if ($rootViewMode) $rootViewMode.value = rv;
+            if (currentFolderId === null || currentFolderId === undefined) await render();
+          }
+          if (typeof settings.folderDefaultViewMode !== 'undefined'){
+            const fv = (settings.folderDefaultViewMode === 'list') ? 'list' : 'grid';
+            await chrome.storage.local.set({ [FOLDER_DEFAULT_VIEW_MODE_KEY]: fv });
+            if ($folderDefaultViewMode) $folderDefaultViewMode.value = fv;
+          }
+          if (typeof settings.tileGapPercent !== 'undefined'){
+            const tg = clampGapPercent(settings.tileGapPercent);
+            await chrome.storage.local.set({ [TILE_GAP_PERCENT_KEY]: tg });
+          }
           if (typeof settings.showTitles !== 'undefined'){
             const on = !!settings.showTitles;
             applyShowTitles(on, {save:true, rerender:true});
             if ($showTitlesInline) $showTitlesInline.checked = on;
+          }
+          if (typeof settings.theme !== 'undefined'){
+            const theme = settings.theme === 'light' ? 'light' : 'dark';
+            await chrome.storage.local.set({ [THEME_KEY]: theme });
+            applyTheme(theme, {save:false});
+          }
+          if (typeof settings.iconTheme !== 'undefined'){
+            const iconTheme = settings.iconTheme === 'light' ? 'light' : 'dark';
+            await chrome.storage.local.set({ [ICON_THEME_KEY]: iconTheme });
+            setActionIconByTheme(iconTheme);
+            try{ chrome.runtime.sendMessage({ type:'iconThemeChanged', iconTheme }); }catch{}
           }
           if (typeof settings.bgTransparent !== 'undefined'){
             applyWidgetBgTransparency(!!settings.bgTransparent, {save:true});
@@ -4549,6 +4606,8 @@ function importLinks(){
           // сохранить группы и lastGroupId как есть
           await chrome.storage.local.set({ groups, lastGroupId });
           await render();
+          // Mark settings as dirty so Save becomes enabled in settings panel
+          try{ if (typeof markDirty === 'function') markDirty(true); }catch{}
           restoreWidthByLinks();
         }catch(parseErr){
           console.error(parseErr);

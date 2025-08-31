@@ -127,9 +127,14 @@ async function exportLinks(){
       LINKS_KEY,
       TILE_PERCENT_KEY, TILE_OPACITY_KEY, FAVICON_SATURATION_KEY,
       MAX_COLS_KEY, SHOW_TITLES_KEY, THEME_KEY, ICON_THEME_KEY,
-      'groups', 'lastGroupId', 'bgTransparent', 'footerTransparent'
+      'groups', 'lastGroupId', 'bgTransparent', 'footerTransparent',
+      // extra settings and mapping
+      'listIconPercent', 'rootViewMode', 'folderDefaultViewMode', 'folderOpacity', 'tileGapPercent', 'autoFavicon', 'map_link_e2c'
     ]);
-    const links = Array.isArray(stAll[LINKS_KEY]) ? stAll[LINKS_KEY] : [];
+    const allLinks = Array.isArray(stAll[LINKS_KEY]) ? stAll[LINKS_KEY] : [];
+    const mapLinkE2C = stAll['map_link_e2c'] || {};
+    // Only export root-level custom (non-Chrome-mapped) links
+    const links = allLinks.filter(x => !x?.folderId && !mapLinkE2C[x?.id]);
     const payload = {
       version: 3,
       exportedAt: new Date().toISOString(),
@@ -143,6 +148,13 @@ async function exportLinks(){
         iconTheme: stAll[ICON_THEME_KEY] || 'dark',
         bgTransparent: !!(stAll.bgTransparent),
         footerTransparent: !!(stAll.footerTransparent),
+        // include extra settings from main widget
+        listIconPercent: clampUserPercent(stAll['listIconPercent'] ?? 100),
+        rootViewMode: (stAll['rootViewMode']==='list') ? 'list' : 'grid',
+        folderDefaultViewMode: (stAll['folderDefaultViewMode']==='list') ? 'list' : 'grid',
+        folderOpacity: clampOpacityPercent(stAll['folderOpacity'] ?? 100),
+        tileGapPercent: (()=>{ const v = stAll['tileGapPercent']; const def = 50; const n = Math.round(Number(v)); if(!Number.isFinite(n)) return def; return Math.min(100, Math.max(0, n)); })(),
+        autoFavicon: !!(stAll['autoFavicon']),
       },
       links: links.map((x, index)=> ({ ...x, index })),
       groups: (Array.isArray(stAll.groups)?stAll.groups:[]).map(g=>({ id:g.id, name:g.name, index:g.index })),
@@ -186,8 +198,15 @@ function importLinks(){
           groups = Array.isArray(json.groups)? json.groups : [];
           lastGroupId = json.lastGroupId ?? null;
           if(!links || !Array.isArray(links)) return alert('Неверный формат: нет массива "links".');
-          if(!confirm('Импорт заменит текущие ссылки. Продолжить?')) return;
-          await chrome.storage.local.set({ [LINKS_KEY]: links, groups, lastGroupId });
+          if(!confirm('Импорт заменит корневые пользовательские ссылки. Продолжить?')) return;
+
+          // Merge strategy: keep non-root or Chrome-mapped links, replace only root-level custom ones
+          const stNow = await chrome.storage.local.get([LINKS_KEY, 'map_link_e2c']);
+          const current = Array.isArray(stNow[LINKS_KEY]) ? stNow[LINKS_KEY] : [];
+          const mapE2C = stNow['map_link_e2c'] || {};
+          const kept = current.filter(x => x?.folderId || mapE2C[x?.id]);
+          const sanitized = links.map(x => ({ ...x, folderId: null }));
+          await chrome.storage.local.set({ [LINKS_KEY]: [...kept, ...sanitized], groups, lastGroupId });
           if(typeof settings.tilePercent!== 'undefined'){
             const user = clampUserPercent(settings.tilePercent);
             await chrome.storage.local.set({ [TILE_PERCENT_KEY]: user });
@@ -234,7 +253,18 @@ function importLinks(){
           if (typeof settings.footerTransparent !== 'undefined'){
             applyFooterTransparency(!!settings.footerTransparent, {save:true, broadcast:true});
           }
+          // store additional settings (no immediate apply hooks here)
+          const extra = {};
+          if (typeof settings.listIconPercent !== 'undefined') extra['listIconPercent'] = clampUserPercent(settings.listIconPercent);
+          if (typeof settings.rootViewMode !== 'undefined') extra['rootViewMode'] = (settings.rootViewMode==='list')?'list':'grid';
+          if (typeof settings.folderDefaultViewMode !== 'undefined') extra['folderDefaultViewMode'] = (settings.folderDefaultViewMode==='list')?'list':'grid';
+          if (typeof settings.folderOpacity !== 'undefined') extra['folderOpacity'] = clampOpacityPercent(settings.folderOpacity);
+          if (typeof settings.tileGapPercent !== 'undefined') extra['tileGapPercent'] = clampUserPercent(settings.tileGapPercent);
+          if (typeof settings.autoFavicon !== 'undefined') extra['autoFavicon'] = !!settings.autoFavicon;
+          if (Object.keys(extra).length){ await chrome.storage.local.set(extra); }
           try{ chrome.runtime.sendMessage({ type:'dataImported' }); }catch{}
+          // Enable Save button so user can confirm changes
+          try{ const btn = document.getElementById('settingsSave'); if (btn) btn.disabled = false; }catch{}
           alert('Импорт завершён.');
         }catch(e){ alert('Не удалось импортировать: ' + (e?.message || String(e))); }
       }; r.readAsText(file);
