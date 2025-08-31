@@ -4397,3 +4397,7 @@ function getFaviconLoadStatsReport() {
   
   return report;
 }
+
+
+}
+}
