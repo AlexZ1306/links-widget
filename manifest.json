@@ -24,7 +24,7 @@
     },
   
     "content_security_policy": {
-      "extension_pages": "script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: chrome:; connect-src 'self' https:;"
+      "extension_pages": "script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: chrome: https: http:; connect-src 'self' https: http:;"
     },
 
     "web_accessible_resources": [

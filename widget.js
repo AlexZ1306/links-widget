@@ -1381,9 +1381,15 @@ async function render(orderOverride=null, prevRects=null){
         img.className = "favicon";
         img.alt = "";
         img.draggable = false;
-        if (item.favicon && item.favicon.startsWith('data:')){
+        if (item.iconCustom && item.favicon){
+          // Пользовательский URL имеет приоритет
+          img.onerror = () => { setFaviconWithFallback(img, item.url, 64); };
+          img.src = item.favicon;
+        } else if (item.favicon && item.favicon.startsWith('data:')){
+          // Локальный data URL — используем напрямую
           img.src = item.favicon;
         } else {
+          // Стандартная мгновенная система через chrome://favicon
           setFaviconWithFallback(img, item.url, 64);
         }
         if (item.iconTone === 'mono') img.classList.add('mono');
@@ -1656,9 +1662,15 @@ async function render(orderOverride=null, prevRects=null){
         img.alt = "";
         img.draggable = false;
 
-        if (item.favicon && item.favicon.startsWith('data:')){
+        if (item.iconCustom && item.favicon){
+          // Пользовательский URL имеет приоритет
+          img.onerror = () => { setFaviconWithFallback(img, item.url, 64); };
+          img.src = item.favicon;
+        } else if (item.favicon && item.favicon.startsWith('data:')){
+          // Локальный data URL — используем напрямую
           img.src = item.favicon;
         } else {
+          // Стандартная мгновенная система через chrome://favicon
           setFaviconWithFallback(img, item.url, 64);
         }
         if (item.iconTone === 'mono') img.classList.add('mono');
@@ -2094,6 +2106,7 @@ function openEditorOverlay(item){
   $overlay.appendChild(wrap); $overlay.classList.add("open");
 
   let currentIcon = item.favicon || DEFAULT_ICON;
+  let currentIconCustom = !!(item.favicon && /^https?:\/\//i.test(String(item.favicon||'')));
   let currentTone = item.iconTone || null;
 
   // Загружаем папки и обновляем поле выбора
@@ -2212,12 +2225,12 @@ function openEditorOverlay(item){
     // Если введён URL иконки, но не успели выйти из поля, учитываем его
     (function(){
       let v=(inIconUrl?.value||'').trim();
-      if(v){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; } }catch{} }
+      if(v){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; currentIconCustom=true; } }catch{} }
     })();
     const arr=await getLinks(); const i=arr.findIndex(x=>x.id===item.id);
     if(i>=0){
       const selectedFolderId = inFolder.value || null;
-      arr[i]={...arr[i], title:inTitle.value.trim()||arr[i].title, url, favicon:currentIcon, iconTone: currentTone, folderId: selectedFolderId};
+      arr[i]={...arr[i], title:inTitle.value.trim()||arr[i].title, url, favicon:currentIcon, iconTone: currentTone, iconCustom: !!currentIconCustom, folderId: selectedFolderId};
       await setLinks(arr);
       try{ chrome.runtime.sendMessage({ type:'extUpdateLink', link: arr[i] }); }catch{}
       editorOpen = false; editorKind = null;
@@ -2590,6 +2603,7 @@ function openAddOverlay(){
   $overlay.appendChild(wrap); $overlay.classList.add("open");
 
   let currentIcon = DEFAULT_ICON;
+  let currentIconCustom = false;
   let currentTone = null;
 
   // Загружаем папки и обновляем поле выбора
@@ -2682,38 +2696,15 @@ function openAddOverlay(){
     // Если введён URL иконки, но не успели выйти из поля, учитываем его
     (function(){
       let v=(inIconUrl?.value||'').trim();
-      if(v){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; } }catch{} }
+      if(v){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; currentIconCustom=true; } }catch{} }
     })();
     
-    // Определяем финальную иконку
-    let finalIcon = currentIcon;
-    
-    // Если пользователь не указал URL иконки вручную, проверяем настройку autoFavicon
-    if (!inIconUrl.value.trim()) {
-      const autoFaviconEnabled = await getAutoFaviconSetting();
-      if (!autoFaviconEnabled) {
-        // Если autoFavicon отключен, используем дефолтную иконку
-        finalIcon = DEFAULT_ICON;
-      } else {
-        // Если autoFavicon включен, пытаемся подтянуть фавикон
-        try {
-          const favicon = await getFaviconWithCache(url);
-          if (favicon && favicon !== NO_ICON_URL) {
-            finalIcon = favicon;
-            // Дополнительно кэшируем URL сайта для быстрого доступа
-            faviconCache.set(url, favicon);
-            saveFaviconCache().catch(() => {});
-          } else {
-            // Если не удалось подтянуть фавикон, используем NO_ICON_URL
-            finalIcon = NO_ICON_URL;
-          }
-        } catch (error) {
-          console.error('Ошибка при получении фавикона:', error);
-          finalIcon = NO_ICON_URL;
-        }
-      }
-    }
-    
+    // Единая система: не подставляем авто-фавикон в сохранённые данные;
+    // если пользователь ввёл свой URL — он остаётся, иначе сохраняем null
+    let finalIcon = (currentIconCustom && typeof currentIcon === 'string')
+      ? currentIcon
+      : (typeof currentIcon === 'string' && currentIcon.startsWith('data:') ? currentIcon : null);
+
     const arr=await getLinks();
     const selectedFolderId = inFolder.value || null;
     arr.push({ 
@@ -2722,6 +2713,7 @@ function openAddOverlay(){
       url, 
       kind:"custom", 
       favicon:finalIcon, 
+      iconCustom: !!currentIconCustom,
       iconTone: currentTone,
       folderId: selectedFolderId
     });
@@ -3244,10 +3236,7 @@ async function openAddCurrentPageOverlay() {
   frIcon.innerHTML='<label>Icon URL</label>';
   const inIconUrl=document.createElement("input"); inIconUrl.type="url"; inIconUrl.placeholder="https://example.com/icon.png";
   
-  // Предзаполняем URL иконки текущей страницы
-  if (currentTabData && currentTabData.favicon) {
-    inIconUrl.value = currentTabData.favicon;
-  }
+  // Поле Icon URL оставляем пустым — пользователь заполнит вручную при желании
   frIcon.appendChild(inIconUrl);
 
   const actions=document.createElement("div"); actions.className="actions";
@@ -3261,6 +3250,7 @@ async function openAddCurrentPageOverlay() {
   $overlay.appendChild(wrap); $overlay.classList.add("open");
 
   let currentIcon = currentTabData && currentTabData.favicon ? currentTabData.favicon : DEFAULT_ICON;
+  let currentIconCustom = false;
   let currentTone = null;
 
   // Загружаем папки и обновляем поле выбора
@@ -3353,38 +3343,14 @@ async function openAddCurrentPageOverlay() {
     // Если введён URL иконки, но не успели выйти из поля, учитываем его
     (function(){
       let v=(inIconUrl?.value||'').trim();
-      if(v){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; } }catch{} }
+      if(v){ if(!/^https?:\/\//i.test(v)) v='https://'+v; try{ const u=new URL(v); if(u.protocol==='http:'||u.protocol==='https:'){ currentIcon=u.toString(); currentTone=null; currentIconCustom=true; } }catch{} }
     })();
     
-    // Определяем финальную иконку
-    let finalIcon = currentIcon;
-    
-    // Если пользователь не указал URL иконки вручную, проверяем настройку autoFavicon
-    if (!inIconUrl.value.trim()) {
-      const autoFaviconEnabled = await getAutoFaviconSetting();
-      if (!autoFaviconEnabled) {
-        // Если autoFavicon отключен, используем дефолтную иконку
-        finalIcon = DEFAULT_ICON;
-      } else {
-        // Если autoFavicon включен, пытаемся подтянуть фавикон
-        try {
-          const favicon = await getFaviconWithCache(url);
-          if (favicon && favicon !== NO_ICON_URL) {
-            finalIcon = favicon;
-            // Дополнительно кэшируем URL сайта для быстрого доступа
-            faviconCache.set(url, favicon);
-            saveFaviconCache().catch(() => {});
-          } else {
-            // Если не удалось подтянуть фавикон, используем NO_ICON_URL
-            finalIcon = NO_ICON_URL;
-          }
-        } catch (error) {
-          console.error('Ошибка при получении фавикона:', error);
-          finalIcon = NO_ICON_URL;
-        }
-      }
-    }
-    
+    // Единая система: не подставляем авто-фавикон в сохранённые данные
+    let finalIcon = (currentIconCustom && typeof currentIcon === 'string')
+      ? currentIcon
+      : (typeof currentIcon === 'string' && currentIcon.startsWith('data:') ? currentIcon : null);
+
     const arr=await getLinks();
     const selectedFolderId = inFolder.value || null;
     arr.push({ 
@@ -3393,6 +3359,7 @@ async function openAddCurrentPageOverlay() {
       url, 
       kind:"custom", 
       favicon:finalIcon, 
+      iconCustom: !!currentIconCustom,
       iconTone: currentTone,
       folderId: selectedFolderId
     });
