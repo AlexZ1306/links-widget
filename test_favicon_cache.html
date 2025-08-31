@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест кэширования фавиконов</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .favicon-test {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .favicon-test img {
+            width: 16px;
+            height: 16px;
+            margin-right: 10px;
+        }
+        .status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.success { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .status.info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .cache-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>Тест кэширования фавиконов</h1>
+    
+    <div class="test-section">
+        <h2>Тестирование загрузки фавиконов</h2>
+        <p>Этот тест проверяет работу локального кэширования фавиконов в расширении Links Widget.</p>
+        
+        <button onclick="testFaviconLoading()">Загрузить фавиконы</button>
+        <button onclick="clearCache()">Очистить кэш</button>
+        <button onclick="showCacheInfo()">Показать информацию о кэше</button>
+        
+        <div id="testResults"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Информация о кэше</h2>
+        <div id="cacheInfo" class="cache-info">Нажмите "Показать информацию о кэше" для отображения данных</div>
+    </div>
+
+    <script>
+        // Список сайтов для тестирования
+        const testSites = [
+            'https://www.google.com',
+            'https://www.github.com',
+            'https://www.stackoverflow.com',
+            'https://www.youtube.com',
+            'https://www.reddit.com',
+            'https://www.wikipedia.org',
+            'https://www.amazon.com',
+            'https://www.netflix.com'
+        ];
+
+        // Функция для генерации фавиконов (имитация функции из расширения)
+        function generateFaviconUrls(url) {
+            try {
+                const urlObj = new URL(url);
+                const baseUrl = `${urlObj.protocol}//${urlObj.hostname}`;
+                const domain = urlObj.hostname;
+                
+                return [
+                    `${baseUrl}/favicon.ico`,
+                    `${baseUrl}/favicon.png`,
+                    `${baseUrl}/apple-touch-icon.png`,
+                    `${baseUrl}/apple-touch-icon-precomposed.png`,
+                    `https://www.google.com/s2/favicons?domain=${domain}&sz=32`,
+                    `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
+                    `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=${encodeURIComponent(url)}&size=32`,
+                    `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=${encodeURIComponent(url)}&size=64`
+                ];
+            } catch (error) {
+                console.error('Ошибка генерации путей к фавиконам:', error);
+                return [];
+            }
+        }
+
+        // Функция для загрузки фавикона как data URL
+        async function loadFaviconAsDataUrl(url) {
+            try {
+                const response = await fetch(url, { 
+                    mode: 'cors',
+                    cache: 'force-cache'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const blob = await response.blob();
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(new Error('Ошибка чтения файла'));
+                    reader.readAsDataURL(blob);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки фавикона как data URL:', error);
+                return null;
+            }
+        }
+
+        // Функция для поиска рабочего фавикона
+        async function findWorkingFavicon(url) {
+            const faviconUrls = generateFaviconUrls(url);
+            
+            for (const faviconUrl of faviconUrls) {
+                try {
+                    const response = await fetch(faviconUrl, { 
+                        method: 'HEAD',
+                        mode: 'no-cors'
+                    });
+                    return faviconUrl;
+                } catch (error) {
+                    // Пробуем через img
+                    const img = new Image();
+                    const result = await new Promise((resolve) => {
+                        img.onload = () => resolve(faviconUrl);
+                        img.onerror = () => resolve(null);
+                        img.src = faviconUrl;
+                        setTimeout(() => resolve(null), 2000);
+                    });
+                    if (result) return result;
+                }
+            }
+            
+            // Fallback на Google Favicon Service
+            try {
+                const urlObj = new URL(url);
+                return `https://www.google.com/s2/favicons?domain=${urlObj.hostname}&sz=32`;
+            } catch {
+                return null;
+            }
+        }
+
+        // Функция для тестирования загрузки фавиконов
+        async function testFaviconLoading() {
+            const resultsDiv = document.getElementById('testResults');
+            resultsDiv.innerHTML = '<p>Загрузка фавиконов...</p>';
+            
+            const results = [];
+            
+            for (const site of testSites) {
+                const startTime = performance.now();
+                
+                try {
+                    // Ищем фавикон
+                    const faviconUrl = await findWorkingFavicon(site);
+                    
+                    if (faviconUrl) {
+                        // Загружаем как data URL
+                        const dataUrl = await loadFaviconAsDataUrl(faviconUrl);
+                        const endTime = performance.now();
+                        const loadTime = Math.round(endTime - startTime);
+                        
+                        results.push({
+                            site,
+                            faviconUrl,
+                            dataUrl: dataUrl ? 'Успешно' : 'Ошибка',
+                            loadTime,
+                            success: !!dataUrl
+                        });
+                    } else {
+                        results.push({
+                            site,
+                            faviconUrl: 'Не найден',
+                            dataUrl: 'Н/Д',
+                            loadTime: Math.round(performance.now() - startTime),
+                            success: false
+                        });
+                    }
+                } catch (error) {
+                    results.push({
+                        site,
+                        faviconUrl: 'Ошибка',
+                        dataUrl: 'Ошибка',
+                        loadTime: Math.round(performance.now() - startTime),
+                        success: false,
+                        error: error.message
+                    });
+                }
+            }
+            
+            // Отображаем результаты
+            let html = '<h3>Результаты тестирования:</h3>';
+            
+            results.forEach(result => {
+                const statusClass = result.success ? 'success' : 'error';
+                const statusText = result.success ? 'Успешно' : 'Ошибка';
+                
+                html += `
+                    <div class="favicon-test">
+                        <img src="${result.dataUrl === 'Успешно' ? result.faviconUrl : 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSIjZmZmIi8+CjxwYXRoIGQ9Ik04IDJMMTIgNkgxMFYxMEg2VjZINFYySDhaIiBmaWxsPSIjNjY2Ii8+Cjwvc3ZnPgo='}" alt="favicon">
+                        <div>
+                            <strong>${result.site}</strong><br>
+                            <small>URL: ${result.faviconUrl}</small><br>
+                            <small>Data URL: ${result.dataUrl}</small><br>
+                            <small>Время загрузки: ${result.loadTime}ms</small>
+                        </div>
+                        <span class="status ${statusClass}">${statusText}</span>
+                    </div>
+                `;
+            });
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        // Функция для очистки кэша
+        function clearCache() {
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    names.forEach(name => {
+                        caches.delete(name);
+                    });
+                });
+            }
+            document.getElementById('testResults').innerHTML = '<p class="status info">Кэш браузера очищен</p>';
+        }
+
+        // Функция для показа информации о кэше
+        async function showCacheInfo() {
+            const cacheInfoDiv = document.getElementById('cacheInfo');
+            let info = 'Информация о кэше:\n\n';
+            
+            if ('caches' in window) {
+                const cacheNames = await caches.keys();
+                info += `Количество кэшей: ${cacheNames.length}\n`;
+                cacheNames.forEach(name => {
+                    info += `- ${name}\n`;
+                });
+            } else {
+                info += 'Cache API не поддерживается\n';
+            }
+            
+            info += '\nИнформация о хранилище:\n';
+            if ('localStorage' in window) {
+                info += `localStorage размер: ${JSON.stringify(localStorage).length} символов\n`;
+            }
+            
+            if ('sessionStorage' in window) {
+                info += `sessionStorage размер: ${JSON.stringify(sessionStorage).length} символов\n`;
+            }
+            
+            cacheInfoDiv.textContent = info;
+        }
+    </script>
+</body>
+</html>
+

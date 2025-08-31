@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест конкретного фавикона</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .favicon-test {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .favicon-test img {
+            width: 32px;
+            height: 32px;
+            margin-right: 10px;
+            border: 1px solid #ccc;
+        }
+        .status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.success { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .status.info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 5px;
+        }
+        .log {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Тест конкретного фавикона</h1>
+    
+    <div class="test-section">
+        <h2>Тестирование проблемного фавикона</h2>
+        <p>Этот тест поможет диагностировать проблемы с конкретным фавиконом.</p>
+        
+        <div class="input-group">
+            <label>URL фавикона:</label>
+            <input type="text" id="faviconUrl" value="https://app.spline.design/_assets/_icons/icon_favicon16x16.png" placeholder="Введите URL фавикона">
+        </div>
+        
+        <div class="input-group">
+            <label>URL сайта (опционально):</label>
+            <input type="text" id="siteUrl" value="https://app.spline.design/home" placeholder="Введите URL сайта">
+        </div>
+        
+        <button onclick="testSpecificFavicon()">Тестировать фавикон</button>
+        <button onclick="clearLog()">Очистить лог</button>
+        
+        <div id="testResults"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Лог тестирования</h2>
+        <div id="log" class="log">Нажмите "Тестировать фавикон" для начала тестирования</div>
+    </div>
+
+    <script>
+        let logMessages = [];
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logMessages.push(`[${timestamp}] ${message}`);
+            document.getElementById('log').textContent = logMessages.join('\n');
+            console.log(message);
+        }
+        
+        function clearLog() {
+            logMessages = [];
+            document.getElementById('log').textContent = 'Лог очищен';
+        }
+        
+        // Функция для загрузки фавикона как data URL (копия из расширения)
+        async function loadFaviconAsDataUrl(url) {
+            log(`Начинаем загрузку фавикона: ${url}`);
+            
+            try {
+                // Сначала пробуем с CORS
+                log('Пробуем загрузку с CORS...');
+                const response = await fetch(url, { 
+                    mode: 'cors',
+                    cache: 'force-cache'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                log(`CORS загрузка успешна, статус: ${response.status}`);
+                const blob = await response.blob();
+                log(`Получен blob размером: ${blob.size} байт`);
+                
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        log('Файл успешно конвертирован в data URL');
+                        resolve(reader.result);
+                    };
+                    reader.onerror = () => {
+                        log('Ошибка чтения файла');
+                        reject(new Error('Ошибка чтения файла'));
+                    };
+                    reader.readAsDataURL(blob);
+                });
+            } catch (error) {
+                log(`Ошибка загрузки с CORS: ${error.message}`);
+                
+                // Если CORS не работает, пробуем через img элемент
+                try {
+                    log('Пробуем загрузку через img элемент...');
+                    return new Promise((resolve, reject) => {
+                        const img = new Image();
+                        img.crossOrigin = 'anonymous';
+                        
+                        img.onload = () => {
+                            log('Изображение загружено через img элемент');
+                            try {
+                                // Создаем canvas для конвертации
+                                const canvas = document.createElement('canvas');
+                                const ctx = canvas.getContext('2d');
+                                canvas.width = img.naturalWidth;
+                                canvas.height = img.naturalHeight;
+                                
+                                log(`Размер изображения: ${img.naturalWidth}x${img.naturalHeight}`);
+                                
+                                // Рисуем изображение на canvas
+                                ctx.drawImage(img, 0, 0);
+                                
+                                // Конвертируем в data URL
+                                const dataUrl = canvas.toDataURL('image/png');
+                                log('Изображение успешно конвертировано через canvas');
+                                resolve(dataUrl);
+                            } catch (canvasError) {
+                                log(`Ошибка конвертации через canvas: ${canvasError.message}`);
+                                reject(canvasError);
+                            }
+                        };
+                        
+                        img.onerror = () => {
+                            log('Ошибка загрузки изображения через img элемент');
+                            reject(new Error('Не удалось загрузить изображение'));
+                        };
+                        
+                        // Устанавливаем таймаут
+                        setTimeout(() => {
+                            log('Таймаут загрузки изображения (5 секунд)');
+                            reject(new Error('Таймаут загрузки изображения'));
+                        }, 5000);
+                        
+                        img.src = url;
+                    });
+                } catch (imgError) {
+                    log(`Ошибка загрузки фавикона через img: ${imgError.message}`);
+                    return null;
+                }
+            }
+        }
+        
+        // Функция для тестирования конкретного фавикона
+        async function testSpecificFavicon() {
+            const faviconUrl = document.getElementById('faviconUrl').value.trim();
+            const siteUrl = document.getElementById('siteUrl').value.trim();
+            const resultsDiv = document.getElementById('testResults');
+            
+            if (!faviconUrl) {
+                alert('Введите URL фавикона');
+                return;
+            }
+            
+            log('=== НАЧАЛО ТЕСТИРОВАНИЯ ===');
+            log(`Фавикон: ${faviconUrl}`);
+            if (siteUrl) {
+                log(`Сайт: ${siteUrl}`);
+            }
+            
+            resultsDiv.innerHTML = '<p>Тестирование...</p>';
+            
+            const startTime = performance.now();
+            
+            try {
+                // Тестируем загрузку фавикона
+                const dataUrl = await loadFaviconAsDataUrl(faviconUrl);
+                const endTime = performance.now();
+                const loadTime = Math.round(endTime - startTime);
+                
+                if (dataUrl) {
+                    log(`✅ Фавикон успешно загружен за ${loadTime}ms`);
+                    log(`Размер data URL: ${dataUrl.length} символов`);
+                    
+                    // Отображаем результат
+                    resultsDiv.innerHTML = `
+                        <h3>Результат тестирования:</h3>
+                        <div class="favicon-test">
+                            <img src="${dataUrl}" alt="favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiBmaWxsPSIjZmZmIi8+CjxwYXRoIGQ9Ik0xNiA0TDI0IDEySDIwVjIwSDEyVjEySDhWNEgxNloiIGZpbGw9IiM2NjYiLz4KPC9zdmc+Cg=='">
+                            <div>
+                                <strong>✅ Успешно загружен</strong><br>
+                                <small>URL: ${faviconUrl}</small><br>
+                                <small>Время загрузки: ${loadTime}ms</small><br>
+                                <small>Размер: ${dataUrl.length} символов</small>
+                            </div>
+                            <span class="status success">Успешно</span>
+                        </div>
+                    `;
+                } else {
+                    log('❌ Не удалось загрузить фавикон');
+                    resultsDiv.innerHTML = `
+                        <h3>Результат тестирования:</h3>
+                        <div class="favicon-test">
+                            <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiBmaWxsPSIjZmZmIi8+CjxwYXRoIGQ9Ik0xNiA0TDI0IDEySDIwVjIwSDEyVjEySDhWNEgxNloiIGZpbGw9IiM2NjYiLz4KPC9zdmc+Cg==" alt="error">
+                            <div>
+                                <strong>❌ Ошибка загрузки</strong><br>
+                                <small>URL: ${faviconUrl}</small><br>
+                                <small>Время: ${loadTime}ms</small>
+                            </div>
+                            <span class="status error">Ошибка</span>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                const endTime = performance.now();
+                const loadTime = Math.round(endTime - startTime);
+                
+                log(`❌ Ошибка тестирования: ${error.message}`);
+                
+                resultsDiv.innerHTML = `
+                    <h3>Результат тестирования:</h3>
+                    <div class="favicon-test">
+                        <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiBmaWxsPSIjZmZmIi8+CjxwYXRoIGQ9Ik0xNiA0TDI0IDEySDIwVjIwSDEyVjEySDhWNEgxNloiIGZpbGw9IiM2NjYiLz4KPC9zdmc+Cg==" alt="error">
+                        <div>
+                            <strong>❌ Ошибка</strong><br>
+                            <small>URL: ${faviconUrl}</small><br>
+                            <small>Время: ${loadTime}ms</small><br>
+                            <small>Ошибка: ${error.message}</small>
+                        </div>
+                        <span class="status error">Ошибка</span>
+                    </div>
+                `;
+            }
+            
+            log('=== КОНЕЦ ТЕСТИРОВАНИЯ ===');
+        }
+        
+        // Автоматический тест при загрузке страницы
+        window.addEventListener('load', () => {
+            log('Страница загружена, готов к тестированию');
+        });
+    </script>
+</body>
+</html>
+

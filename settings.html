@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Settings · Links Widget</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #202124;
+      --surface: #2b2d31;
+      --surface-2: #1f2023;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --border: #3c4043;
+      --primary: #1a73e8;
+      --danger: #d93025;
+
+      --footer-bg: #232427;
+      --tile-bg: var(--surface-2);
+      --input-bg: var(--surface-2);
+      --button-bg: var(--surface-2);
+      --button-hover: rgba(255, 255, 255, 0.08);
+      --tooltip-bg: var(--surface-2);
+      --icon-color: #e8eaed;
+      
+      --gap:10px; --pad:12px;
+      --tileOpacity: 1;
+      --folderOpacity: 1;
+      --faviconSaturation: 100%;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f3f4f6;
+      --surface: #ffffff;
+      --surface-2: #f9fafb;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #d1d5db;
+      --primary: #2563eb;
+      --danger: #dc2626;
+
+      --footer-bg: #ffffff;
+      --tile-bg: #ffffff;
+      --input-bg: #ffffff;
+      --button-bg: #ffffff;
+      --button-hover: rgba(0, 0, 0, 0.05);
+      --tooltip-bg: rgba(17, 24, 39, 0.95);
+      --icon-color: #111827;
+    }
+
+    html, body{ margin:0; padding:0; background:var(--bg); color:var(--text); }
+    /* Scrollbar под тему */
+    *{ scrollbar-color: var(--border) var(--bg); }
+    *::-webkit-scrollbar{ width: 10px; height:10px }
+    *::-webkit-scrollbar-track{ background: var(--bg) }
+    *::-webkit-scrollbar-thumb{ background: var(--border); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box }
+    body{ font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif }
+    .wrap{ padding:14px }
+    .settings{ background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:var(--pad); display:flex; flex-direction:column; gap:var(--gap); }
+    .header{ display:flex; justify-content:space-between; align-items:center }
+    .title{ font-weight:600 }
+    .close{ border:none; background:transparent; color:var(--text); width:30px; height:30px; border-radius:8px; cursor:pointer }
+    .close:hover{ background:var(--button-hover) }
+    .row{ display:flex; align-items:center; gap:var(--gap); margin-bottom:12px }
+    label{ color:var(--muted); font-size:12px }
+    input[type="number"]{ width:64px; text-align:center }
+    input[type="number"], input[type="range"]{ border:1px solid var(--border); background:var(--input-bg); color:var(--text); border-radius:8px; padding:8px 10px }
+    input[type="range"]{ accent-color:var(--primary) }
+    .actions{ display:flex; gap:8px }
+    .actions > div{ display:flex; gap:8px }
+    button{ border:1px solid var(--border); background:var(--button-bg); color:var(--text); padding:8px 12px; border-radius:8px; cursor:pointer }
+    button:hover{ background:var(--button-hover) }
+    button.primary{ background:var(--primary); color:#fff; border:none; font-weight:600 }
+
+    /* Материал-тумблер 36x20 (светлая/тёмная тема) */
+    .material-switch{ position:relative; display:inline-block; width:36px; height:20px }
+    .material-switch input{ opacity:0; width:0; height:0 }
+    .material-slider{ position:absolute; inset:0; border-radius:20px; cursor:pointer; transition: background-color .24s ease, border .24s ease }
+    .material-slider::before{ content:""; position:absolute; width:12px; height:12px; left:2px; top:4px; border-radius:50%; transition: transform .24s ease, background-color .24s ease }
+    /* Светлая тема */
+    :root[data-theme="light"] .material-switch input:not(:checked) + 
+    .material-slider{ background-color:#E1E3E1; border:1px solid #747775 }
+    :root[data-theme="light"] .material-switch input:not(:checked) + 
+    .material-slider::before{ background-color:#747775; top:3px }
+    :root[data-theme="light"] .material-switch input:checked + .material-slider{ background-color:#0B57D0; border:none }
+    :root[data-theme="light"] .material-switch input:checked + .material-slider::before{ background-color:#FFFFFF; transform:translateX(16px) }
+    /* Тёмная тема */
+    :root[data-theme="dark"] .material-switch input:not(:checked) + 
+    .material-slider{ background-color:#444746; border:1px solid #8E918F }
+    :root[data-theme="dark"] .material-switch input:not(:checked) + 
+    .material-slider::before{ background-color:#8E918F; top:3px }
+    :root[data-theme="dark"] .material-switch input:checked + .material-slider{ background-color:#A8C7FA; border:none }
+    :root[data-theme="dark"] .material-switch input:checked + .material-slider::before{ background-color:#062E6F; transform:translateX(16px) }
+
+    /* Тултипы */
+    .tooltip {
+      position: absolute;
+      background: var(--tooltip-bg);
+      color: #fff;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 12px;
+      white-space: nowrap;
+      z-index: 10001;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .tooltip.show {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="settings">
+      <div class="header">
+        <div class="title">Settings</div>
+        <button id="btnClose" class="close" title="Закрыть">✕</button>
+      </div>
+
+      <div class="row">
+        <label for="tileSizeRange">Tile size</label>
+        <input id="tileSizeRange" type="range" min="10" max="100" step="1" value="100" aria-label="Tile size percent" />
+        <input id="tileSizeInput" type="number" min="10" max="100" step="1" value="100" aria-label="Tile size percent number" />
+      </div>
+
+      <div class="row">
+        <label for="tileOpacityRange">Bookmark opacity</label>
+        <input id="tileOpacityRange" type="range" min="0" max="100" step="1" value="100" aria-label="Bookmark opacity percent" />
+        <input id="tileOpacityInput" type="number" min="0" max="100" step="1" value="100" aria-label="Bookmark opacity percent number" />
+      </div>
+
+      <div class="row">
+        <label for="folderOpacityRange">Folder opacity</label>
+        <input id="folderOpacityRange" type="range" min="0" max="100" step="1" value="100" aria-label="Folder opacity percent" />
+        <input id="folderOpacityInput" type="number" min="0" max="100" step="1" value="100" aria-label="Folder opacity percent number" />
+      </div>
+
+      <div class="row">
+        <label for="faviconSaturationRange">Favicon saturation</label>
+        <input id="faviconSaturationRange" type="range" min="0" max="100" step="1" value="100" aria-label="Favicon saturation percent" />
+        <input id="faviconSaturationInput" type="number" min="0" max="100" step="1" value="100" aria-label="Favicon saturation percent number" />
+      </div>
+
+      <div class="row">
+        <label for="maxColsRange">Max columns</label>
+        <input id="maxColsRange" type="range" min="3" max="10" step="1" value="5" aria-label="Max columns" />
+        <input id="maxColsInput" type="number" min="3" max="10" step="1" value="5" aria-label="Max columns number" />
+      </div>
+
+      <div class="row" style="margin-bottom:16px">
+        <label for="showTitlesToggle">Show titles</label>
+        <label class="material-switch">
+          <input id="showTitlesToggle" type="checkbox" />
+          <span class="material-slider"></span>
+        </label>
+      </div>
+
+       <div class="row" style="margin-bottom:16px">
+         <label for="themeIconToggle">Theme icon</label>
+         <label class="material-switch">
+           <input id="themeIconToggle" type="checkbox" />
+           <span class="material-slider"></span>
+         </label>
+       </div>
+
+
+
+      <div class="row" style="margin-bottom:16px">
+        <label for="themeToggle">Theme</label>
+        <label class="material-switch">
+          <input id="themeToggle" type="checkbox" />
+          <span class="material-slider"></span>
+        </label>
+      </div>
+      <div class="actions" style="justify-content:space-between">
+        <div>
+          <button id="settingsExport">Export</button>
+          <button id="settingsImport">Import</button>
+        </div>
+        <div>
+          <button id="settingsCancel">Cancel</button>
+          <button id="settingsSave" class="primary" disabled>Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>

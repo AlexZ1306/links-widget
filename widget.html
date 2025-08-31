@@ -1,0 +1,950 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Менеджер ссылок</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #202124;
+      --surface: #2b2d31;
+      --surface-2: #1f2023;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --border: #3c4043;
+      --primary: #1a73e8;
+      --danger: #d93025;
+
+      --footer-bg: #232427;
+      --tile-bg: var(--surface-2);
+      --input-bg: var(--surface-2);
+      --button-bg: var(--surface-2);
+      --button-hover: rgba(255, 255, 255, 0.08);
+      --tooltip-bg: var(--surface-2);
+      --icon-color: #e8eaed;
+      
+      --gap:10px; --pad:12px; --elevRow:0 3px 10px rgba(0,0,0,.22);
+      --tileSize:56px; --toolSize:40px;
+       --tileOpacity: 1;
+       --folderOpacity: 1;
+       --faviconSaturation: 100%;
+      /* подписи к плиткам */
+      --titleGap: 6px;
+      --titleH: 18px; /* высота строки подписи */
+      --titleExtra: 0px; /* 0px или calc(var(--titleGap) + var(--titleH)) */
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f3f4f6;
+      --surface: #ffffff;
+      --surface-2: #f9fafb;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #d1d5db;
+      --primary: #2563eb;
+      --danger: #dc2626;
+
+      --footer-bg: #FAFAFA;
+      --tile-bg: #ffffff;
+      --input-bg: #ffffff;
+      --button-bg: #ffffff;
+      --button-hover: rgba(0, 0, 0, 0.05);
+      --tooltip-bg: rgba(17, 24, 39, 0.95);
+      --icon-color: #111827;
+      
+      --elevRow: 0 3px 10px rgba(0,0,0,.1);
+      color-scheme: light;
+    }
+
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);overflow:hidden;max-height:580px}
+    body{min-height:fit-content}
+    /* Scrollbar под тему */
+    *{ scrollbar-color: var(--border) var(--bg); }
+    *::-webkit-scrollbar{ width: 10px; height:10px }
+    *::-webkit-scrollbar-track{ background: var(--bg) }
+    *::-webkit-scrollbar-thumb{ background: var(--border); border-radius: 10px; border: 2px solid var(--bg); background-clip: padding-box }
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+    .wrap{padding:14px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:width .18s ease;display:flex;flex-direction:column;max-height:552px}
+    .card-body{padding:0 var(--pad) var(--pad);flex:1;min-height:0;overflow:auto;overflow-x:hidden}
+
+    /* Сетка плиток */
+    #list{ display:grid; gap:var(--gap);
+      grid-template-columns:repeat(var(--cols,3),minmax(0, var(--tileSize)));
+      justify-content:start; min-width:0;
+    }
+    .tile{
+      position:relative; height:calc(var(--tileSize) + var(--titleExtra));
+      border-radius:12px; background:transparent;
+      display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer;
+      transition: box-shadow .16s ease, height .18s ease; will-change:transform; user-select:none;
+      transform-origin:center center;
+    }
+    .tile::before{
+      content:""; position:absolute; inset:0; border-radius:inherit;
+      background:var(--tile-bg); border:1px solid var(--border);
+      opacity:var(--tileOpacity); pointer-events:none;
+      transition: filter .12s ease, opacity .12s ease;
+    }
+    .tile.folder-tile::before{
+      opacity:var(--folderOpacity);
+    }
+    .tile > *{ position:relative; z-index:1 }
+    .tile .edit-mini{ z-index:2 }
+    @keyframes tile-spring{
+      0%   { transform: translateY(0) scale(1); }
+      60%  { transform: translateY(-1px) scale(1.055); }
+      100% { transform: translateY(-1px) scale(1.04); }
+    }
+
+    /* Hover-подсветка: лёгкий брайт + тень */
+    .tile:hover{ box-shadow:var(--elevRow) }
+    .tile:hover::before{ filter:brightness(1.06); opacity:.5 }
+    /* Принудительное состояние наведения через класс (для Move) */
+    .tile.hovering{ box-shadow:var(--elevRow) }
+    .tile.hovering::before{ filter:brightness(1.06); opacity:.5 }
+    .tile-opacity-zero .tile.hovering::before{ opacity:.5 !important; filter:none }
+    /* Особый режим: когда tileOpacity = 0% — по hover делаем подложку 50% */
+    .tile-opacity-zero .tile:hover::before{ opacity:.5 !important; filter:none }
+    /* Особый режим: когда folderOpacity = 0% — по hover делаем подложку 50% */
+    .folder-opacity-zero .tile.folder-tile:hover::before{ opacity:.5 !important; filter:none }
+    .tile.dragging{ opacity:.75; box-shadow:var(--elevRow) }
+    /* Подложка всегда активна при перетаскивании */
+    .tile.dragging::before{ filter:brightness(1.06) }
+    /* Спец-режим: когда tileOpacity = 0% — при драге делаем подложку 50% */
+    .tile-opacity-zero .tile.dragging::before{ opacity:.5 !important; filter:none }
+    /* Курсор: перетаскивание только в Move, в Edit/Delete — обычная стрелка */
+    .move-mode .tile, .move-mode .tile *{ cursor:grab }
+    /* В Move при наведении показываем тень и подложку (до начала перетаскивания) */
+    .move-mode .tile:hover{ box-shadow:var(--elevRow) !important }
+    /* В Move на наведение делаем подложку 50%, как требуется */
+    .move-mode .tile:hover::before{ opacity:.5 !important; filter:brightness(1.06) !important }
+    .tile-opacity-zero .move-mode .tile:hover::before{ opacity:.5 !important; filter:none !important }
+    :root:not(.move-mode) .edit-mode .tile{ cursor:default }
+    :root:not(.move-mode) .edit-mode .tile:hover{ box-shadow:none }
+    :root:not(.move-mode) .edit-mode .tile:hover::before{ filter:none; opacity: var(--tileOpacity) !important }
+    /* Исключение для папок: в Edit hover оставляем тень и статичную folderOpacity */
+    :root:not(.move-mode) .edit-mode .tile.folder-tile:hover{ box-shadow:var(--elevRow) !important }
+    :root:not(.move-mode) .edit-mode .tile.folder-tile:hover::before{ filter:none !important; opacity: var(--folderOpacity) !important }
+    /* В режиме Delete (ctrl-delete-mode класс ставится на root) также убираем любой hover-эффект */
+    .ctrl-delete-mode .tile:hover{ box-shadow:none }
+    .ctrl-delete-mode .tile:hover::before{ filter:none; opacity: var(--tileOpacity) !important }
+    /* Исключение для папок: в Delete hover оставляем тень и статичную folderOpacity */
+    .ctrl-delete-mode .tile.folder-tile:hover{ box-shadow:var(--elevRow) !important }
+    .ctrl-delete-mode .tile.folder-tile:hover::before{ filter:none !important; opacity: var(--folderOpacity) !important }
+    /* В режиме Move скрываем мини-кнопки */
+    .move-mode .tile .edit-mini{ display:none }
+    /* Во время глобального драга — отключаем hover-эффекты у всех плиток */
+    .dragging-global .tile:hover{ box-shadow:none }
+    .dragging-global .tile:hover::before{ filter:none; opacity: var(--tileOpacity) }
+    /* Перетаскиваемая плитка всегда с подсветкой, даже когда курсор над ней */
+    .dragging-global .tile.dragging,
+    .dragging-global .tile.dragging:hover{ box-shadow:var(--elevRow) !important; opacity:1 }
+    .dragging-global .tile.dragging::before,
+    .dragging-global .tile.dragging:hover::before{ opacity: var(--tileOpacity) !important; filter:brightness(1.06) !important }
+    /* Если общая прозрачность плиток 0% — фиксированная подложка 50% и при наведении */
+    .tile-opacity-zero .tile.dragging::before,
+    .tile-opacity-zero .tile.dragging:hover::before{ opacity:.5 !important; filter:none }
+    .dragging-global .tile{ pointer-events:none }
+    /* Разрешаем клики только по перетаскиваемой плитке, и подсветку как hover */
+    .dragging-global .tile.dragging{ pointer-events:auto }
+    .dragging-global .tile.dragging::before{ filter:brightness(1.06) }
+    .dragging-global .tile.dragging{ box-shadow:var(--elevRow); opacity:1 }
+    /* Поворот карандаша на мини-кнопке в плитке (только иконка) */
+    .edit-mode .tile .edit-mini span{ display:inline-block; transform:scaleX(-1) }
+    /* Курсор руки и запрет выделения при перетаскивании */
+    .dragging-global, .dragging-global *{ cursor:grabbing !important; user-select:none }
+    /* Move: во время перетаскивания держим такую же подсветку как на ховере */
+    .move-mode .tile.dragging,
+    .move-mode .tile.dragging:hover{ box-shadow:var(--elevRow) !important; opacity:1 !important }
+    .move-mode .tile.dragging::before,
+    .move-mode .tile.dragging:hover::before{ filter:brightness(1.06) !important; opacity:.5 !important }
+    .tile-opacity-zero .move-mode .tile.dragging::before,
+    .tile-opacity-zero .move-mode .tile.dragging:hover::before{ opacity:.5 !important; filter:none !important }
+    /* Убираем дрожание; вместо этого добавим две полоски-подсказки в JS */
+
+    .favicon{ width:calc(var(--tileSize) * 0.52); height:calc(var(--tileSize) * 0.52); border-radius:8px; display:block; pointer-events:none; transition:filter .12s ease; filter: saturate(var(--faviconSaturation, 100%)) }
+    .favicon.mono{ filter: invert(1) brightness(1.15) contrast(1.06) saturate(var(--faviconSaturation, 100%)) }
+
+    .tile .edit-mini{
+      position:absolute; right:6px; bottom:6px; display:none;
+      border:1px solid var(--border); background:var(--button-bg); color:var(--icon-color);
+      padding:4px 6px; border-radius:8px; font-size:11px; opacity:.95; cursor:pointer;
+    }
+    .tile .edit-mini:hover{ opacity:1; background: color-mix(in srgb, var(--button-bg) 85%, #fff 15%); border-color: color-mix(in srgb, var(--border) 70%, #fff 30%) }
+    .edit-mode .tile .edit-mini{ display:block }
+    .titles-on .tile .edit-mini{ bottom: calc(6px + var(--titleH) + var(--titleGap)) }
+
+    /* Мини чекбокс на плитке (в стиле edit-mini) */
+    .tile .select-mini{
+      position:absolute; right:6px; bottom:6px; display:none;
+      border:1px solid var(--border); background:var(--button-bg); color:var(--icon-color);
+      width:22px; height:22px; box-sizing:border-box; padding:0; border-radius:8px; opacity:.95; cursor:pointer;
+      align-items:center; justify-content:center;
+    }
+    .tile .select-mini:hover{ opacity:1; background: color-mix(in srgb, var(--button-bg) 85%, #fff 15%); border-color: color-mix(in srgb, var(--border) 70%, #fff 30%) }
+    .edit-mode .tile .select-mini{ display:flex }
+    .select-mode .tile .select-mini{ display:flex }
+    .titles-on .tile .select-mini{ bottom: calc(6px + var(--titleH) + var(--titleGap)) }
+    .select-mini svg{ width:14px; height:14px; display:none; pointer-events:none; flex:0 0 auto }
+    .select-mini.selected svg{ display:block }
+    /* В режиме Select скрываем мини-карандаш */
+    .select-mode .tile .edit-mini{ display:none }
+
+    /* Подпись под иконкой */
+    .tile .caption{
+      margin-top: var(--titleGap);
+      font-size: 11px; line-height: 1.1; color: var(--muted);
+      max-width: 100%; text-align:center;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      pointer-events:none; opacity:0; transition: opacity .18s ease;
+    }
+    .titles-on .tile .caption{ opacity:1 }
+
+    /* Редактор */
+    #overlayEditor{display:none;margin-top:12px}
+    #overlayEditor.open{display:block}
+    .panel{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px}
+    .edit-fav{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+    .preview{ width:var(--toolSize);height:var(--toolSize); border-radius:12px;background:var(--surface);border:1px solid var(--border);
+      display:flex;align-items:center;justify-content:center;cursor:pointer; box-shadow:inset 0 0 0 1px rgba(255,255,255,.02);}
+    .preview img{width:22px;height:22px;border-radius:6px;display:block;filter: saturate(var(--faviconSaturation, 100%))}
+    .preview img.mono{ filter: invert(1) brightness(1.15) contrast(1.06) saturate(var(--faviconSaturation, 100%)) }
+    .toolbtn{ width:var(--toolSize);height:var(--toolSize); border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--icon-color);
+      display:inline-flex;align-items:center;justify-content:center;cursor:pointer; transition:background .12s ease}
+    .toolbtn:hover{ background:var(--button-hover) }
+    .toolbtn svg{width:20px;height:20px;fill:currentColor;display:block}
+
+    .form-row{display:grid;gap:8px;margin-top:12px}
+    .form-row:first-child{margin-top:0}
+    label{font-size:12px;color:var(--muted)}
+    input{ width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);
+      background:var(--input-bg);color:var(--text);font-size:14px;outline:none}
+    /* Убираем спин-баттоны у number-инпутов */
+    input[type="number"]{ appearance: textfield; -moz-appearance: textfield; }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance: none; margin: 0; }
+    input:focus{border-color:var(--primary)}
+    select{ width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);
+      background:var(--input-bg);color:var(--text);font-size:14px;outline:none;cursor:pointer;
+      appearance: none; -webkit-appearance: none; -moz-appearance: none;
+      background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path d="M6 8.825L1.175 4 2.238 2.938 6 6.7l3.763-3.762L10.825 4z" fill="%23666"/></svg>');
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 12px;
+      padding-right: 28px; }
+    select:focus{border-color:var(--primary)}
+    [data-theme="dark"] select{ background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path d="M6 8.825L1.175 4 2.238 2.938 6 6.7l3.763-3.762L10.825 4z" fill="%23ccc"/></svg>'); }
+    input[type="range"]{ accent-color:var(--primary) }
+
+    .actions{display:flex;justify-content:space-between;align-items:center;margin-top:14px}
+    .actions-right{display:flex;gap:8px}
+    button{ border:1px solid var(--border);background:var(--button-bg);color:var(--text);
+      padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;transition:filter .12s ease, opacity .12s ease}
+    button:hover{ background:var(--button-hover) }
+    button:active{ filter:brightness(.96) }
+    .primary{background:var(--primary);color:#fff;border:none;font-weight:600}
+    .primary:disabled{opacity:.5;cursor:not-allowed}
+    .danger{background:color-mix(in srgb, var(--danger) 12%, transparent);border-color:var(--danger);color:var(--danger)}
+
+    /* Футер */
+    .footerbar{background:var(--footer-bg);border-top:1px solid var(--border);padding:8px var(--pad);display:flex;align-items:center;justify-content:space-between}
+    .copy{font-size:11px;color:var(--muted);opacity:.9;user-select:none;padding-left:2px}
+    #copyrightLink{cursor:pointer}
+    #copyrightLink:hover{opacity:1}
+    .foot-actions{display:flex;gap:8px}
+    .footbtn{ border:none;background:transparent;color:var(--icon-color);
+      width:30px;height:30px;border-radius:8px;cursor:pointer; display:inline-flex;align-items:center;justify-content:center;
+      transition:background .12s ease; padding:0 }
+    .footbtn:hover{ background:var(--button-hover) }
+    .footbtn.active{ background:var(--button-hover) }
+    .footbtn .ico{ width:18px;height:18px;background:currentColor;display:block;
+      -webkit-mask: var(--mask) no-repeat center/contain; mask: var(--mask) no-repeat center/contain; }
+    .footbtn .ico.plus{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1z" fill="currentColor"/>\
+        </svg>');
+    }
+    .footbtn .ico.edit{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M4 17.25V20h2.75l8.12-8.12-2.75-2.75L4 17.25z" fill="currentColor"/>\
+          <path d="M14.06 8.06l2.75 2.75 2.12-2.12a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-2.12 2.12z" fill="currentColor"/>\
+        </svg>');
+    }
+
+    .footbtn .ico.settings{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7 7 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.24-1.13.55-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.65 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.77 14.52a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.31.6.22l2.39-.96c.5.39 1.05.7 1.63.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.58-.24 1.13-.55 1.63-.94l2.39.96c.21.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z" fill="currentColor"/>\
+        </svg>');
+    }
+
+    /* Settings inline */
+    .settings-inline{background:var(--surface-2);border:1px solid var(--border);border-radius:0 0 12px 12px;padding:var(--pad);margin:0 0 var(--pad) 0;display:flex;flex-direction:column;gap:var(--gap)}
+    .settings-title{font-weight:600}
+    .settings-actions{display:flex;gap:8px}
+    .settings-group{display:flex;flex-direction:column;gap:8px}
+    .tile-size-row{display:flex;gap:var(--gap);align-items:center}
+    .tile-size-row label{min-width:max-content}
+    #tileSizeInput{ width:64px; text-align:center }
+    .tile-size-number{display:flex;align-items:center;gap:6px}
+    .card.freeze-size{ overflow:hidden }
+    .card.freeze-size .card-body{ overflow:auto }
+
+    /* Пикер (виртуализированный) */
+    .icon-picker-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:9999}
+    .icon-picker-backdrop.open{display:flex}
+    .icon-picker{width:min(560px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:0 10px 40px rgba(0,0,0,.45)}
+    .icon-picker header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+    .tabs{display:flex;gap:8px;align-items:center}
+    .tab{border:1px solid var(--border);background:var(--surface-2);color:var(--muted);padding:6px 10px;border-radius:8px;cursor:pointer}
+    .tab.active{background:var(--surface-2);color:var(--text)}
+    .search-row{display:flex;gap:8px;margin-bottom:10px}
+    .icon-picker input{flex:1;border-radius:8px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);padding:8px 10px}
+    .icon-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;max-height:340px;overflow:auto}
+    .icon-cell{border:1px solid var(--border);background:var(--surface-2);border-radius:10px;height:56px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .1s ease}
+    .icon-cell:hover{transform:translateY(-1px)}
+    .icon-cell img{width:22px;height:22px;filter: invert(1) brightness(1.15) contrast(1.06)}
+    .icon-cell:hover img{filter: invert(1) brightness(1.3) contrast(1.06)}
+    .list-footer{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+    .list-footer .small{font-size:11px;color:var(--muted)}
+    .list-footer .empty{font-size:13px;color:var(--muted)}
+    .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--tooltip-bg);color:#fff;padding:8px 12px;border-radius:8px;border:1px solid var(--border);box-shadow:var(--elevRow);z-index:10000;opacity:0;transition:opacity 0.3s ease}
+    .toast.show{opacity:1}
+    .toast.success{background:color-mix(in srgb, #10b981 95%, transparent);border-color:#10b981}
+    .toast.error{background:color-mix(in srgb, #ef4444 95%, transparent);border-color:#ef4444}
+    .toast.info{background:var(--tooltip-bg)}
+
+    /* Inline Settings Panel (inside card, below tiles) */
+    #settingsFloat[hidden]{ display:none }
+    #settingsFloat{ position:static; width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:var(--pad);
+      margin-top:var(--pad); box-shadow:var(--elevRow); opacity:0; transform:translateY(-8px);
+      transition: transform .24s ease, opacity .24s ease; overflow: visible !important; max-height: none !important }
+    #settingsFloat.open{ opacity:1; transform:translateY(0) }
+    #settingsFloat header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px }
+    #settingsFloat .settings-title{ font-weight:600 }
+    #settingsFloat .settings-actions{ display:flex; gap:8px }
+    #settingsFloat .tile-size-row{ display:flex; gap: calc(var(--gap) + 14px); align-items:center; margin-bottom:10px }
+    #settingsFloat .tile-size-row label{ padding-right:8px }
+    #settingsFloat #tileSizeInput{ width:64px; text-align:center }
+    #settingsFloat #tileOpacityInput{ width:64px; text-align:center }
+#settingsFloat #folderOpacityInput{ width:64px; text-align:center }
+    #settingsFloat #faviconSaturationInput{ width:64px; text-align:center }
+    #settingsFloat #maxColsInput{ width:64px; text-align:center }
+    #settingsFloat #listIconSizeInput{ width:64px; text-align:center }
+    #settingsFloat .rows{ display:flex; flex-direction:column; gap:12px }
+    #settingsFloat .tile-size-row{ margin-bottom:0 }
+    /* Полностью убираем любое :hover-переиспользование от label на соседние элементы */
+    #settingsFloat .tile-size-row label:hover ~ *{ filter:none !important; background:none !important; box-shadow:none !important; }
+    #settingsFloat .tile-size-row label:hover ~ input[type="range"]::-webkit-slider-thumb{ filter:none !important; }
+    #settingsFloat .tile-size-row label:hover ~ input[type="range"]::-moz-range-thumb{ filter:none !important; }
+    #settingsFloat .settings-actions{ display:flex; align-items:center; justify-content:space-between; margin-top:12px }
+    #settingsFloat .right-actions{ display:flex; gap:8px }
+    #settingsFloat .left-actions{ display:flex; gap:8px }
+    #settingsSave.primary:disabled{ opacity:.5; cursor:not-allowed }
+    /* Материал-тумблер 36x20 (светлая/тёмная тема) */
+    .material-switch{ position:relative; display:inline-block; width:36px; height:20px }
+    .material-switch input{ opacity:0; width:0; height:0 }
+    .material-slider{ position:absolute; inset:0; border-radius:20px; cursor:pointer; transition: background-color .24s ease, border .24s ease }
+    .material-slider::before{ content:""; position:absolute; width:12px; height:12px; left:2px; top:4px; border-radius:50%; transition: transform .24s ease, background-color .24s ease }
+    /* Светлая тема */
+    :root[data-theme="light"] .material-switch input:not(:checked) + 
+    .material-slider{ background-color:#E1E3E1; border:1px solid #747775 }
+    :root[data-theme="light"] .material-switch input:not(:checked) + 
+    .material-slider::before{ background-color:#747775; top:3px }
+    :root[data-theme="light"] .material-switch input:checked + .material-slider{ background-color:#0B57D0; border:none }
+    :root[data-theme="light"] .material-switch input:checked + .material-slider::before{ background-color:#FFFFFF; transform:translateX(16px) }
+    /* Тёмная тема */
+    :root[data-theme="dark"] .material-switch input:not(:checked) + 
+    .material-slider{ background-color:#444746; border:1px solid #8E918F }
+    :root[data-theme="dark"] .material-switch input:not(:checked) + 
+    .material-slider::before{ background-color:#8E918F; top:3px }
+    :root[data-theme="dark"] .material-switch input:checked + .material-slider{ background-color:#A8C7FA; border:none }
+    :root[data-theme="dark"] .material-switch input:checked + .material-slider::before{ background-color:#062E6F; transform:translateX(16px) }
+
+    /* убран спец. стиль темы — используем общий switch */
+
+    /* Тултипы */
+    .tooltip {
+      position: fixed;
+      background: var(--tooltip-bg);
+      color: #d4d4d4;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 11px;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      max-width: calc(100vw - 16px);
+      z-index: 10001;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .tooltip.show {
+      opacity: 1;
+    }
+
+    /* Панелька с кнопками добавления */
+    .add-panel {
+      position: absolute;
+      bottom: 50px;
+      right: 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: var(--elevRow);
+      z-index: 1000;
+      opacity: 0;
+      transform: translateY(10px) scale(0.95);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: none;
+    }
+    /* Вторая панель совпадает по стилю */
+    #editPanel{ right: 52px }
+    .add-panel.show {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+    
+    /* Контекстное меню */
+    .context-menu {
+      position: fixed;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: var(--elevRow);
+      z-index: 1000;
+      opacity: 0;
+      transform: translateY(10px) scale(0.95);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: none;
+      max-height: calc(100vh - 16px);
+      overflow: auto;
+    }
+    .context-menu.show {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+    .context-menu .context-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.12s ease;
+      white-space: nowrap;
+      min-width: 90px;
+    }
+    .context-menu .context-btn:hover {
+      background: var(--button-hover);
+    }
+    .context-menu .context-btn .ico {
+      width: 16px;
+      height: 16px;
+      background: currentColor;
+      display: block;
+      -webkit-mask: var(--mask) no-repeat center/contain;
+      mask: var(--mask) no-repeat center/contain;
+    }
+    /* Иконки для контекстного меню (используем те же, что и в панели режимов) */
+    .context-menu .context-btn .ico.mode-edit{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>\
+        </svg>');
+    }
+    .context-menu .context-btn .ico.mode-delete{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" fill="currentColor"/>\
+        </svg>');
+    }
+    .context-menu .context-btn .ico.back{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor"/>\
+        </svg>');
+    }
+    .context-menu .context-btn .ico.mode-move{
+      display:none;
+    }
+    .context-menu .context-btn .ico.mode-move-text{ width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; font-size:16px; line-height:1; background:none }
+    .context-submenu{ display:none; flex-direction:column; gap:4px; max-height:300px; overflow:auto }
+    .context-submenu.show{ display:flex }
+    .context-move-item{ display:flex; align-items:center; gap:8px; width:100%; padding:8px 12px; border:none; background:transparent; color:var(--text); border-radius:8px; cursor:pointer; font-size:13px; text-align:left; --indent:0px; padding-left: calc(12px + var(--indent)) }
+    .context-move-item:hover{ background: var(--button-hover) }
+    .context-submenu .divider{ border-top:1px solid var(--border); margin-top:6px; padding-top:6px }
+    .context-folder-icon{ width:14px; height:14px; border-radius:4px; display:block }
+    .context-folder-icon.mono{ filter: invert(1) brightness(1.15) contrast(1.06) }
+    .add-panel .add-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.12s ease;
+      white-space: nowrap;
+      min-width: 90px;
+    }
+    .add-panel .add-btn:hover {
+      background: var(--button-hover);
+    }
+    .add-panel .add-btn .ico {
+      width: 16px;
+      height: 16px;
+      background: currentColor;
+      display: block;
+      -webkit-mask: var(--mask) no-repeat center/contain;
+      mask: var(--mask) no-repeat center/contain;
+    }
+    .add-panel .add-btn .ico.create {
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1z" fill="currentColor"/>\
+        </svg>');
+    }
+    .add-panel .add-btn .ico.add-current {
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>\
+        </svg>');
+    }
+    .add-panel .add-btn .ico.folder {
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor"/>\
+        </svg>');
+    }
+
+    /* Иконки для меню режимов (Select / Edit / Move / Delete) */
+    .add-panel .add-btn .ico.mode-select{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <rect x="3.5" y="3.5" width="17" height="17" rx="3" ry="3" fill="none" stroke="currentColor" stroke-width="2"/>\
+          <path d="M6.5 12.5 10 16l7.5-7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>\
+        </svg>');
+    }
+    .add-panel .add-btn .ico.mode-edit{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>\
+        </svg>');
+    }
+    .add-panel .add-btn .ico.mode-move{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M12 2l4 4h-3v4h-2V6H8l4-4zm0 20l-4-4h3v-4h2v4h3l-4 4zM2 12l4-4v3h4v2H6v3l-4-4zm20 0l-4 4v-3h-4v-2h4V8l4 4z" fill="currentColor"/>\
+        </svg>');
+    }
+    .add-panel .add-btn .ico.mode-delete{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" fill="currentColor"/>\
+        </svg>');
+    }
+    /* Мини-иконка корзины на плитке */
+    .trash-mini{ width:12px; height:12px; display:inline-block; background:currentColor; -webkit-mask: var(--mask-trash) no-repeat center/contain; mask: var(--mask-trash) no-repeat center/contain; }
+    :root{ --mask-trash: url('data:image/svg+xml;utf8,\
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+        <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" fill="currentColor"/>\
+      </svg>'); }
+
+    /* Заголовок папки */
+    .folder-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--pad) var(--pad) 12px var(--pad);
+      margin-left: calc(-1 * var(--pad));
+      margin-right: calc(-1 * var(--pad));
+      width: calc(100% + 2 * var(--pad));
+      margin-bottom: 0;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      box-shadow: 0 1px 0 var(--border);
+      z-index: 2;
+    }
+
+    /* Отступ сверху в корне, когда заголовок скрыт */
+    #folderHeader[style*="display: none"] ~ #list{ margin-top: var(--pad) }
+    #folderHeader[style*="display: none"] ~ #emptyState{ margin-top: var(--pad) }
+    .folder-title {
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+      text-align: center;
+      display:flex; align-items:center; justify-content:center; gap:8px;
+    }
+    /* Инлайн-редактор названия папки */
+    .folder-title.editing{ padding:0 }
+    .folder-title-input{ width:100%; max-width:420px; margin:0 auto; text-align:center; 
+      background:transparent; color:var(--text); border:1px solid var(--border); border-radius:8px; 
+      padding:6px 10px; font: inherit; outline:none }
+    .folder-title-input:focus{ border-color: var(--primary) }
+    .folder-header-icon{ width:18px; height:18px; border-radius:6px; display:block }
+    .folder-header-icon.mono{ filter: invert(1) brightness(1.15) contrast(1.06) }
+    .nav-btn {
+      border: none;
+      background: transparent;
+      color: var(--icon-color);
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s ease;
+      padding: 0;
+    }
+    .nav-btn:hover {
+      background: var(--button-hover);
+    }
+    .nav-btn .ico {
+      width: 18px;
+      height: 18px;
+      background: currentColor;
+      display: block;
+      -webkit-mask: var(--mask) no-repeat center/contain;
+      mask: var(--mask) no-repeat center/contain;
+    }
+    .nav-btn .ico.back {
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor"/>\
+        </svg>');
+    }
+    .nav-btn .ico.close {
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>\
+        </svg>');
+    }
+
+    /* Иконки переключения вида */
+    .nav-btn .ico.view-grid{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" fill="currentColor"/>\
+        </svg>');
+    }
+    .nav-btn .ico.view-list{
+      --mask: url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+          <path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z" fill="currentColor"/>\
+        </svg>');
+    }
+
+    /* Режим списка внутри папки */
+    #list.list-view{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0px;
+      min-width: 0;
+    }
+    #list.list-view .tile{
+      height: auto;
+      flex-direction: row;
+      justify-content: flex-start;
+      align-items: center;
+      padding: 8px 8px; /* немного больше вертикальные отступы для подложки */
+      gap: 10px;
+      min-width: 0; /* позволяет обрезку текста в flex */
+    }
+    #list.list-view .favicon{
+      width: var(--listIconSizePx, calc(var(--tileSize) * 0.40));
+      height: var(--listIconSizePx, calc(var(--tileSize) * 0.40));
+      border-radius: 6px;
+      flex: 0 0 auto;
+    }
+    #list.list-view .caption{
+      opacity: 1;
+      margin-top: 0;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
+      font-size: 12px;
+      line-height: 1.2;
+      color: var(--text);
+      flex: 1 1 auto;
+      padding-right: 2px;
+    }
+
+    /* Кнопка поиска фавикона */
+    .toolbtn.search-favicon {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .toolbtn.search-favicon:hover {
+      background: color-mix(in srgb, var(--primary) 85%, transparent);
+    }
+
+    /* Панель массовых действий */
+    #bulkActions[hidden]{ display:none }
+    #bulkActions{
+      position:static; width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:var(--pad);
+      margin-top:var(--pad); box-shadow:var(--elevRow); display:flex; align-items:center; justify-content:space-between; gap:8px;
+    }
+    #bulkActions .right{ display:flex; gap:8px; align-items:center; margin-left:auto }
+    #bulkMove{ min-width: 200px }
+    /* Плейсхолдер для select – имитируем через пустую опцию и серый текст */
+    #bulkMove.placeholder{ color: var(--muted) }
+
+    /* Пустое состояние */
+    #emptyState{ display:flex; align-items:center; justify-content:center; min-height:160px }
+    .empty-wrap{ display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; padding:24px 8px }
+    .empty-title{ color:#E8E7ED; font-size:12px; font-weight:600 }
+    .empty-sub{ color:#949AA0; font-size:12px }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="card">
+      <div class="card-body">
+        <!-- Заголовок с навигацией -->
+        <div id="folderHeader" class="folder-header" style="display: none;">
+          <button id="backButton" class="nav-btn">
+            <span class="ico back"></span>
+          </button>
+          <div id="folderTitle" class="folder-title"></div>
+          <button id="viewToggle" class="nav-btn" title="Переключить вид">
+            <span id="viewToggleIcon" class="ico view-grid"></span>
+          </button>
+          <button id="closeButton" class="nav-btn">
+            <span class="ico close"></span>
+          </button>
+        </div>
+        <div id="emptyState" style="display:none">
+          <div class="empty-wrap">
+            <div class="empty-title">Тут пока нет закладок</div>
+            <div class="empty-sub">Нажмите + чтобы добавить новую закладку или папку</div>
+          </div>
+        </div>
+        <div id="list"></div>
+        <div id="overlayEditor"></div>
+        <section id="bulkActions" hidden aria-label="Bulk actions">
+          <div class="left">
+            <select id="bulkMove" aria-label="Move selected to folder">
+              <option value="" disabled selected>Move to folder…</option>
+            </select>
+          </div>
+          <div class="right">
+            <button id="bulkCancel">Cancel</button>
+            <button id="bulkDelete">Delete</button>
+          </div>
+        </section>
+        
+        <!-- Inline Settings Panel inside card-body (between tiles and footer) -->
+        <section id="settingsFloat" hidden aria-label="Settings" role="dialog" aria-modal="false">
+          <header>
+            <div class="settings-title">Settings</div>
+            <button id="settingsClose" class="footbtn" title="Сlose" aria-label="Закрыть">✕</button>
+          </header>
+          <div class="rows">
+            <div class="tile-size-row">
+              <label for="tileSizeRange">Grid tile size</label>
+              <input id="tileSizeRange" type="range" min="10" max="100" step="1" value="100" aria-label="Tile size percent" />
+              <input id="tileSizeInput" type="number" min="10" max="100" step="1" value="100" aria-label="Tile size percent number" />
+            </div>
+            <!-- Root/Folder view moved below Max columns -->
+            <div class="tile-size-row">
+              <label for="listIconSizeRange">List icon size</label>
+              <input id="listIconSizeRange" type="range" min="10" max="100" step="1" value="100" aria-label="List icon size percent" />
+              <input id="listIconSizeInput" type="number" min="10" max="100" step="1" value="100" aria-label="List icon size percent number" />
+            </div>
+            <div class="tile-size-row">
+              <label for="tileOpacityRange">Bookmark opacity</label>
+              <input id="tileOpacityRange" type="range" min="0" max="100" step="1" value="100" aria-label="Bookmark opacity percent" />
+              <input id="tileOpacityInput" type="number" min="0" max="100" step="1" value="100" aria-label="Bookmark opacity percent number" />
+            </div>
+            <div class="tile-size-row">
+              <label for="folderOpacityRange">Folder opacity</label>
+              <input id="folderOpacityRange" type="range" min="0" max="100" step="1" value="100" aria-label="Folder opacity percent" />
+              <input id="folderOpacityInput" type="number" min="0" max="100" step="1" value="100" aria-label="Folder opacity percent number" />
+            </div>
+            <div class="tile-size-row">
+              <label for="faviconSaturationRange">Favicon saturation</label>
+              <input id="faviconSaturationRange" type="range" min="0" max="100" step="1" value="100" aria-label="Favicon saturation percent" />
+              <input id="faviconSaturationInput" type="number" min="0" max="100" step="1" value="100" aria-label="Favicon saturation percent number" />
+            </div>
+            <div class="tile-size-row">
+              <label for="maxColsRange">Max columns</label>
+              <input id="maxColsRange" type="range" min="3" max="10" step="1" value="5" aria-label="Max columns" />
+              <input id="maxColsInput" type="number" min="3" max="10" step="1" value="5" aria-label="Max columns number" />
+            </div>
+            <div class="tile-size-row">
+              <label for="rootViewMode">Root view</label>
+              <select id="rootViewMode" aria-label="Root view mode">
+                <option value="grid">Grid</option>
+                <option value="list">List</option>
+              </select>
+            </div>
+            <div class="tile-size-row">
+              <label for="folderDefaultViewMode">Default folder view</label>
+              <select id="folderDefaultViewMode" aria-label="Default folder view mode">
+                <option value="grid">Grid</option>
+                <option value="list">List</option>
+              </select>
+            </div>
+            <div class="tile-size-row" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)">
+              <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:10px;padding:8px 12px;background:var(--surface-2)">
+                <span>Show titles</span>
+                <label class="material-switch"><input id="showTitles" type="checkbox" /><span class="material-slider"></span></label>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:10px;padding:8px 12px;background:var(--surface-2)">
+                <span>Auto favicon</span>
+                <label class="material-switch"><input id="autoFavicon" type="checkbox" /><span class="material-slider"></span></label>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:10px;padding:8px 12px;background:var(--surface-2)">
+                <span>Theme icon</span>
+                <label class="material-switch"><input id="themeIconToggleInline" type="checkbox" /><span class="material-slider"></span></label>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:10px;padding:8px 12px;background:var(--surface-2)">
+                <span>Theme</span>
+                <label class="material-switch"><input id="themeToggleInline" type="checkbox" /><span class="material-slider"></span></label>
+              </div>
+
+            </div>
+          </div>
+          <div class="settings-actions">
+            <div class="left-actions">
+              <button id="settingsExport">Export</button>
+              <button id="settingsImport">Import</button>
+            </div>
+            <div class="right-actions">
+              <button id="settingsCancel">Cancel</button>
+              <button id="settingsSave" class="primary" disabled>Save</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      
+
+      <div class="footerbar">
+        <div id="copyrightLink" class="copy" role="button" tabindex="0" aria-label="Открыть сайт CDEK">© MiniTab</div>
+        <div class="foot-actions">
+          <button id="footerAdd" class="footbtn" aria-label="Добавить">
+            <span class="ico plus"></span>
+          </button>
+          <button id="footerEdit" class="footbtn" aria-label="Режим редактирования">
+            <span class="ico edit"></span>
+          </button>
+          <button id="footerSettings" class="footbtn" aria-label="Settings">
+            <span class="ico settings"></span>
+          </button>
+        </div>
+        
+        <!-- Панелька с кнопками добавления -->
+        <div id="addPanel" class="add-panel">
+          <button id="createBookmark" class="add-btn">
+            <span class="ico create"></span>
+            <span>Create bookmark</span>
+          </button>
+          <button id="addCurrentPage" class="add-btn">
+            <span class="ico add-current"></span>
+            <span>Add bookmark</span>
+          </button>
+          <button id="createFolder" class="add-btn">
+            <span class="ico folder"></span>
+            <span>Add folder</span>
+          </button>
+        </div>
+
+        <!-- Панелька режимов редактирования -->
+        <div id="editPanel" class="add-panel">
+          <button id="modeSelect" class="add-btn">
+            <span class="ico mode-select"></span>
+            <span>Select</span>
+          </button>
+          <button id="modeEdit" class="add-btn">
+            <span class="ico mode-edit"></span>
+            <span>Edit</span>
+          </button>
+          <button id="modeDelete" class="add-btn">
+            <span class="ico mode-delete"></span>
+            <span>Delete</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Контекстное меню -->
+  <div id="contextMenu" class="context-menu" hidden>
+    <button id="contextEdit" class="context-btn">
+      <span class="ico mode-edit"></span>
+      <span>Edit</span>
+    </button>
+    <button id="contextDelete" class="context-btn">
+      <span class="ico mode-delete"></span>
+      <span>Delete</span>
+    </button>
+    <button id="contextMoveToggle" class="context-btn" hidden>
+      <span class="ico mode-move-text">⤷</span>
+      <span>Move to folder</span>
+    </button>
+    <!-- Back button now inside submenu as a regular row at the bottom -->
+    <div id="contextMoveSubmenu" class="context-submenu"></div>
+  </div>
+
+  <!-- Пикер иконок -->
+  <div id="iconPicker" class="icon-picker-backdrop" aria-hidden="true">
+    <div class="icon-picker" role="dialog" aria-modal="true" aria-label="Выбор иконки">
+      <header>
+        <div class="tabs" role="tablist">
+          <button id="tabBuiltIn" class="tab active" role="tab" aria-selected="true">Built-in</button>
+          <button id="tabIconIcons" class="tab" role="tab" aria-selected="false">Icon-Icons</button>
+        </div>
+        <button id="iconClose" class="footbtn" title="Сlose" aria-label="Сlose">✕</button>
+      </header>
+      <div class="search-row">
+        <input id="iconSearchBuiltIn" type="text" placeholder="Поиск иконки…" />
+        <input id="iconSearchExternal" type="text" placeholder="Search on icon-icons.com…" hidden />
+      </div>
+      <div id="builtInPanel">
+        <div id="iconGridBuiltIn" class="icon-grid"></div>
+      </div>
+      <div id="iconIconsPanel" hidden>
+        <div id="iconIconsGrid" class="icon-grid"></div>
+        <div class="list-footer">
+          <div id="iconIconsLoader" class="small" hidden>Идёт поиск…</div>
+          <div id="iconIconsEmpty" class="empty" hidden>Ничего не найдено</div>
+          <div id="iconIconsError" class="small" hidden></div>
+          <button id="iconIconsMore" hidden>Показать ещё</button>
+          <div class="small">Source: icon-icons.com</div>
+          <div class="small">Icons belong to their authors on icon-icons.com. Check license on the source website.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="widget.js"></script>
+</body>
+</html>

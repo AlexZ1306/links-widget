@@ -1,0 +1,46 @@
+{
+    "manifest_version": 3,
+    "name": "Links Widget",
+    "version": "1.0.0",
+    "description": "Быстрые ссылки в виде плиток с редактором и набором иконок.",
+  
+    "action": {
+      "default_title": "Links Widget",
+      "default_popup": "widget.html"
+    },
+  
+    "permissions": ["storage", "tabs", "favicon", "bookmarks"],
+
+    "background": {
+      "service_worker": "bg.js",
+      "type": "module"
+    },
+  
+    "icons": {
+      "16": "no_image_icon.png",
+      "32": "no_image_icon.png",
+      "48": "no_image_icon.png",
+      "128": "no_image_icon.png"
+    },
+  
+    "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: chrome:; connect-src 'self' https:;"
+    },
+
+    "web_accessible_resources": [
+      {
+        "resources": [
+          "_favicon",
+          "no_image_icon.png",
+          "no_icon_url.png",
+          "icon_folder.png",
+          "icons/manifest-fa-solid.json",
+          "icons/fa-solid/*.svg",
+          "settings.html",
+          "settings.js"
+        ],
+        "matches": ["<all_urls>"]
+      }
+    ]
+  }
+  
