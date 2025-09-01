@@ -68,13 +68,15 @@
     body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
     .wrap{padding:14px}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:width .18s ease;display:flex;flex-direction:column;max-height:552px}
-    .card-body{padding:0 var(--pad) var(--pad);flex:1;min-height:0;overflow:auto;overflow-x:hidden}
+    .card-body{padding:0 var(--pad) var(--pad);flex:1;min-height:0;overflow:auto;overflow-x:hidden;scrollbar-gutter: stable}
 
     /* Сетка плиток */
     #list{ display:grid; gap:var(--gap);
       grid-template-columns:repeat(var(--cols,3),minmax(0, var(--tileSize)));
       justify-content:start; min-width:0;
     }
+    /* Пока идёт пересборка DOM скрываем содержимое, чтобы исключить флэш старых плиток */
+    #list.rendering{ visibility:hidden }
     .tile{
       position:relative; height:calc(var(--tileSize) + var(--titleExtra));
       border-radius:12px; background:transparent;
@@ -579,7 +581,7 @@
       margin-left: calc(-1 * var(--pad));
       margin-right: calc(-1 * var(--pad));
       width: calc(100% + 2 * var(--pad));
-      margin-bottom: 0;
+      margin-bottom: 8px;
       border-bottom: 1px solid var(--border);
       position: sticky;
       top: 0;

@@ -909,6 +909,8 @@ function animateFlip(prev){
         el.addEventListener("transitionend", ()=>{ el.style.transition=""; el.style.willChange=''; }, { once:true });
       }
     });
+    // Показать контент после подготовки анимации
+    try{ $list.classList.remove('rendering'); }catch{}
   });
 }
 
@@ -1139,6 +1141,8 @@ async function render(orderOverride=null, prevRects=null){
   renderInProgress = true;
   
     try {
+    // Мгновенно скрываем и очищаем список, чтобы исключить мерцание старого содержимого
+    try{ if($list){ $list.classList.add('rendering'); $list.innerHTML=""; } }catch{}
     // Убеждаемся, что currentFolderId правильно инициализирован
     if (currentFolderId === undefined) {
       currentFolderId = null;
@@ -1191,7 +1195,7 @@ async function render(orderOverride=null, prevRects=null){
     $list.classList.remove('list-view');
   }
 
-  $list.innerHTML="";
+  // Список уже очищен в начале render для предотвращения мерцания
   
   // Если мы в корневой папке, рендерим смешанный список (папки + закладки)
   let mixedRootRendered = false;
@@ -1786,12 +1790,19 @@ async function render(orderOverride=null, prevRects=null){
 
   // Обновить вид мини-кнопок (✎/✕) с учётом Ctrl
   updateEditMiniButtonsIcon();
-  if (prevRects) animateFlip(prevRects);
+  if (prevRects) {
+    animateFlip(prevRects);
+  } else {
+    // Если FLIP не запущен, показать содержимое на следующий кадр
+    try{ requestAnimationFrame(()=>{ try{ $list.classList.remove('rendering'); }catch{} }); }catch{}
+  }
   
   // Не предзагружаем внешние фавиконы: используем внутренний кэш Chrome
   } catch (error) {
     console.error('Ошибка в render:', error);
   } finally {
+    // На всякий случай снимаем скрытие, чтобы не зависнуть в невидимом состоянии
+    try{ $list.classList.remove('rendering'); }catch{}
     renderInProgress = false;
   }
 }
