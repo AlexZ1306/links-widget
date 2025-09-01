@@ -82,7 +82,7 @@
       border-radius:12px; background:transparent;
       display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer;
       transition: box-shadow .16s ease, height .18s ease; will-change:transform; user-select:none;
-      transform-origin:center center;
+      transform-origin:center center; backface-visibility:hidden; contain: paint;
     }
     .tile::before{
       content:""; position:absolute; inset:0; border-radius:inherit;
@@ -150,6 +150,10 @@
     .tile-opacity-zero .tile.dragging::before,
     .tile-opacity-zero .tile.dragging:hover::before{ opacity:.5 !important; filter:none }
     .dragging-global .tile{ pointer-events:none }
+    /* Устранение «шлейфа» при быстром DnD: форсируем композитные слои */
+    .dragging-global .tile,
+    .dragging-global .tile .favicon,
+    .dragging-global .tile .caption{ transform: translateZ(0); will-change: transform; backface-visibility:hidden }
     /* Разрешаем клики только по перетаскиваемой плитке, и подсветку как hover */
     .dragging-global .tile.dragging{ pointer-events:auto }
     .dragging-global .tile.dragging::before{ filter:brightness(1.06) }

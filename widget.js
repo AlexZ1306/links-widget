@@ -890,28 +890,72 @@ function captureRects(){
   return m;
 }
 
+// Захватывает геометрию элементов без учёта текущих CSS-трансформаций.
+// Временно отключает transition и transform, чтобы получить «натуральные» позиции,
+// затем мгновенно восстанавливает исходные стили в том же кадре (без мерцаний).
+function captureRectsUntransformed(){
+  const map = new Map();
+  const els = [...$list.children];
+  const saved = els.map(el=>({ el, tr: el.style.transition, tf: el.style.transform }));
+  try{
+    els.forEach(({ style })=>{ style.transition = 'none'; style.transform = 'none'; });
+    // Форсируем расчёт стилей до чтения
+    void $list.offsetWidth;
+    els.forEach(el=>{ map.set(el.dataset.id, el.getBoundingClientRect()); });
+  } finally {
+    // Восстановить стили
+    saved.forEach(s=>{ s.el.style.transform = s.tf; s.el.style.transition = s.tr; });
+  }
+  return map;
+}
+
 /* ---------- копирайт: открытие вкладки ---------- */
 function openCopyrightTab(){
   chrome.tabs.create({ url: COPYRIGHT_URL });
   window.close();
 }
 function animateFlip(prev){
-  requestAnimationFrame(()=>{
-    const duration = 400; // мс, чуть дольше для плавности
+  const run = ()=>{
+    const dragging = document.documentElement.classList.contains('dragging-global');
+    const duration = dragging ? 240 : 400;
     [...$list.children].forEach(el=>{
       const id=el.dataset.id, a=prev.get(id); if(!a) return;
       const b=el.getBoundingClientRect();
       const dx=a.left-b.left, dy=a.top-b.top;
       if(dx || dy){
+        // Жёсткий FLIP: переустанавливаем transition и стартуем в ТОМ ЖЕ кадре
+        const current = getComputedStyle(el).transform;
+        el.style.transition = 'transform 0s';
         el.style.willChange = 'transform';
-        el.style.transform=`translate(${dx}px,${dy}px)`; el.getBoundingClientRect();
-        el.style.transition=`transform ${duration}ms cubic-bezier(.2,.6,.2,1)`; el.style.transform="translate(0,0)";
-        el.addEventListener("transitionend", ()=>{ el.style.transition=""; el.style.willChange=''; }, { once:true });
+        el.style.transform = (current && current !== 'none') ? current : 'translate(0px,0px)';
+        el.style.transform = `translate(${dx}px,${dy}px)`;
+        void el.offsetWidth; // force reflow
+        el.style.transition = `transform ${duration}ms cubic-bezier(.2,.6,.2,1)`;
+        el.style.transform = 'translate(0,0)';
+        if (dragging){ try{ el.style.transform += ' translateZ(0)'; }catch{} }
+        el.addEventListener('transitionend', ()=>{ el.style.transition=''; el.style.willChange=''; }, { once:true });
       }
     });
-    // Показать контент после подготовки анимации
     try{ $list.classList.remove('rendering'); }catch{}
-  });
+  };
+  // Во время DnD запускаем FLIP сразу (без rAF), чтобы избежать промежуточного кадра с «телепортом»
+  if (document.documentElement.classList.contains('dragging-global')) run(); else requestAnimationFrame(run);
+}
+
+// Переупорядочить существующие DOM-элементы по live-порядку без полного рендера
+function applyLiveOrderDom(order, prevRects){
+  if (!$list) return;
+  // Соберём текущие плитки
+  const tilesAll = [...$list.children].filter(el=>el.dataset && (el.dataset.type === 'link' || el.dataset.type === 'folder'));
+  const byKey = new Map(tilesAll.map(el=>[String(el.dataset.id)+":"+String(el.dataset.type), el]));
+  const frag = document.createDocumentFragment();
+  for (const it of order){
+    const key = String(it.id)+":"+String(it.type);
+    const el = byKey.get(key);
+    if (el) frag.appendChild(el);
+  }
+  $list.appendChild(frag);
+  if (prevRects) animateFlip(prevRects);
 }
 
 /* ---------- DnD ---------- */
@@ -934,23 +978,30 @@ function addDragHandlers(tile, items){
     dragId = tile.dataset.id;
     document.documentElement.classList.add('dragging-global');
     tile.classList.add('dragging');
+    // Инициализируем первую перераскладку сразу, чтобы надёжно стартовать DnD
+    try{ lastPointerX = startX; lastPointerY = startY; reorderByCursor(lastPointerX, lastPointerY, items); }catch{}
   }
   function onMove(e){
     if (!pointerDown) return; const x=e.clientX, y=e.clientY;
-    if (!started){ const dx=x-startX, dy=y-startY; if ((dx*dx+dy*dy)<9) return; ensureStart(); }
+    if (!started){ const dx=x-startX, dy=y-startY; if ((dx*dx+dy*dy)<4) return; ensureStart(); }
     // Без фантома: оригинальная плитка остаётся видимой с подсветкой
     lastPointerX = x; lastPointerY = y;
+    // Не даём странице/контейнеру скроллиться под пальцем/колёсиком во время DnD
+    try{ e.preventDefault(); }catch{}
     if (!reorderRaf){
       reorderRaf = requestAnimationFrame(()=>{ reorderRaf = 0; reorderByCursor(lastPointerX, lastPointerY, items); });
     }
-    e.preventDefault();
   }
-  function onUp(){
+  function onUp(e){
     if (!pointerDown) return; pointerDown=false; tile.releasePointerCapture?.(pointerId);
-    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointermove', onMove, { capture:true }); document.removeEventListener('pointerup', onUp, { capture:true });
     clearTimeout(longPressTimer);
     document.documentElement.classList.remove('dragging-global');
-    if (started){ tile.classList.remove('dragging'); lastDragEndedAt=Date.now(); if(liveOrder){ const toSave=liveOrder; liveOrder=null; dragId=null; const isRoot = (currentFolderId === null || currentFolderId === undefined); const p = isRoot ? persistRootMixedOrder(toSave) : persistReorderedSubset(toSave); p.finally(()=>{ const prev=captureRects(); render(toSave, prev); 
+    // Сбросить возможные временные transition (делаем microtask, чтобы не глушить текущие transitionend)
+    Promise.resolve().then(()=>{ try{ [...$list.children].forEach(el=>{ el.style.transition=""; el.style.willChange=""; delete el._dragFlipInit; }); }catch{} });
+    if (started){ tile.classList.remove('dragging'); lastDragEndedAt=Date.now(); if(liveOrder){ const toSave=liveOrder; liveOrder=null; dragId=null; const isRoot = (currentFolderId === null || currentFolderId === undefined); const p = isRoot ? persistRootMixedOrder(toSave) : persistReorderedSubset(toSave); p.finally(()=>{ 
+      // Финальный рендер не нужен: DOM уже соответствует toSave благодаря live-перестановкам.
+      // Это устраняет мерцание при отпускании.
       // Автовыход из Move после дропа
       editMode = false; moveMode = false; ctrlPressed = false; selectedIds.clear(); updateEditMiniButtonsIcon(); updateBulkActionsUI();
       document.documentElement.classList.remove('move-mode');
@@ -966,7 +1017,9 @@ function addDragHandlers(tile, items){
     if ((e.target && e.target.closest && e.target.closest('.edit-mini'))) return;
     pointerDown=true; pointerId=e.pointerId; startX=e.clientX; startY=e.clientY;
     tile.setPointerCapture?.(pointerId);
-    document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp);
+    // Навешиваем обработчики в захваченном режиме, чтобы не терять событие
+    document.addEventListener('pointermove', onMove, { capture:true });
+    document.addEventListener('pointerup', onUp, { capture:true });
     // Если режим Move не включен — включаем его по долгому удержанию
     if (!(editMode && moveMode)){
       clearTimeout(longPressTimer);
@@ -986,6 +1039,8 @@ function addDragHandlers(tile, items){
 // Вычисляем целевой индекс по координатам курсора, а не только над плиткой
 function reorderByCursor(clientX, clientY, items){
   if (!dragId) return;
+  // Для стабильности используем фиксированную высоту ячейки в list-view,
+  // чтобы стартовая оценка строки не плавала из-за подписи и т.п.
   const prevRects = captureRects();
   // Текущий порядок берём из DOM, чтобы точно включать и папки, и закладки
   const tilesAll = [...$list.children].filter(el=>el.dataset && (el.dataset.type === 'link' || el.dataset.type === 'folder'));
@@ -1004,17 +1059,41 @@ function reorderByCursor(clientX, clientY, items){
   const isList = $list.classList.contains('list-view');
   const cols   = isList ? 1 : (parseInt(getComputedStyle($list).getPropertyValue('--cols')) || 5);
 
+  // Отдельная логика для list-view: находим первую плитку,
+  // середина которой ниже курсора, и вставляем перед ней
+  if (isList){
+    // FLIP-подход как для сетки: рассчитываем индекс строки и используем центр-правило
+    const gridRect = $list.getBoundingClientRect();
+    const localY = clientY - gridRect.top;
+    const firstRect = tiles[0].getBoundingClientRect();
+    const cellH = parseInt(getComputedStyle(tiles[0]).height) || Math.round(firstRect.height);
+    const strideY = cellH; // без gap
+    const row = Math.max(0, Math.floor(localY / strideY));
+    let to = Math.max(0, Math.min(order.length, row));
+    // центр-правило
+    const cellTop = row * strideY; const centerY = cellTop + cellH/2; const HYST_Y = 2;
+    if (localY > centerY + HYST_Y) to = row + 1;
+    let toAdj = to; if (from < to) toAdj -= 1; if (toAdj === from) return;
+    const moved = order.splice(from,1)[0]; order.splice(toAdj,0,moved); liveOrder = order;
+    applyLiveOrderDom(order, prevRects);
+    return;
+  }
+
   // Вычислим индекс вставки по координате курсора относительно сетки
   const gridRect = $list.getBoundingClientRect();
   const localX = clientX - gridRect.left;
   const localY = clientY - gridRect.top;
   const firstRect = tiles[0].getBoundingClientRect();
   const cellW = isList ? firstRect.width : tilePx;
-  const cellH = isList ? firstRect.height : (tilePx + (window.userShowTitles ? (parseInt(rs.getPropertyValue('--titleGap')) + parseInt(rs.getPropertyValue('--titleH'))) : 0));
+  const cellH = isList ? (parseInt(getComputedStyle(tiles[0]).height) || Math.round(firstRect.height)) : (tilePx + (window.userShowTitles ? (parseInt(rs.getPropertyValue('--titleGap')) + parseInt(rs.getPropertyValue('--titleH'))) : 0));
+  // Для списка считаем шаг ровно по высоте элемента без учёта gap,
+  // иначе при небольшой погрешности координат возникает скачок на несколько строк
   const strideX = (isList ? cellW : (cellW + gapPx));
-  const strideY = cellH + gapPx;
+  const strideY = isList ? cellH : (cellH + gapPx);
   const col = isList ? 0 : Math.max(0, Math.min(cols - 1, Math.floor((localX + gapPx/2) / strideX)));
-  const row = Math.max(0, Math.floor((localY + gapPx/2) / strideY));
+  // В списке не добавляем половину gap при расчёте индекса строки
+  const row = isList ? Math.max(0, Math.floor(localY / strideY)) : Math.max(0, Math.floor((localY + gapPx/2) / strideY));
+  // Индекс цели из локальных координат (для list-view учёт скролла уже заложен в gridRect/top)
   let targetIndex = isList ? row : (row * cols + col);
   if (targetIndex > tiles.length) targetIndex = tiles.length;
 
@@ -1023,7 +1102,7 @@ function reorderByCursor(clientX, clientY, items){
   if (isList){
     const cellTop = row * strideY;
     const centerY = cellTop + cellH/2;
-    const HYST_Y = 6;
+    const HYST_Y = 2; // минимальный гистерезис для точности
     if (localY > centerY + HYST_Y) to = targetIndex + 1;
   } else {
     const cellLeft = col * strideX;
@@ -1043,7 +1122,10 @@ function reorderByCursor(clientX, clientY, items){
   const moved = order.splice(from,1)[0];
   order.splice(toAdj,0,moved);
   liveOrder = order;
-  render(order, prevRects);
+  // Переставляем элементы прямо в DOM без полного рендера, чтобы
+  // избежать мерцаний и скачков скролла. Полный рендер будет выполнен
+  // при отпускании (persist), а во время DnD только визуальный порядок меняется.
+  applyLiveOrderDom(order, prevRects);
 }
 
 // Позволим переносить «куда угодно»: предотвращаем default на контейнере и обрабатываем drop
@@ -1141,8 +1223,28 @@ async function render(orderOverride=null, prevRects=null){
   renderInProgress = true;
   
     try {
-    // Мгновенно скрываем и очищаем список, чтобы исключить мерцание старого содержимого
-    try{ if($list){ $list.classList.add('rendering'); $list.innerHTML=""; } }catch{}
+    // Определяем, является ли вызов рендера перестановкой (DnD)
+    const isReorder = Array.isArray(orderOverride) && orderOverride.length && (orderOverride[0].id !== undefined);
+    let scroller = null, savedScroll = 0, listH = 0;
+    try{
+      scroller = $card ? $card.querySelector('.card-body') : null;
+      if (scroller) savedScroll = scroller.scrollTop || 0;
+      const r = $list?.getBoundingClientRect?.();
+      if (r && isFinite(r.height)) listH = r.height;
+    }catch{}
+    // Для обычного рендера скрываем и очищаем, чтобы избежать флэшинга
+    // Для перестановки — держим высоту списка и сохраняем скролл
+    try{
+      if ($list){
+        if (isReorder){
+          if (listH > 0) $list.style.minHeight = listH + 'px';
+          $list.innerHTML = "";
+        } else {
+          $list.classList.add('rendering');
+          $list.innerHTML = "";
+        }
+      }
+    }catch{}
     // Убеждаемся, что currentFolderId правильно инициализирован
     if (currentFolderId === undefined) {
       currentFolderId = null;
@@ -1195,7 +1297,7 @@ async function render(orderOverride=null, prevRects=null){
     $list.classList.remove('list-view');
   }
 
-  // Список уже очищен в начале render для предотвращения мерцания
+  // Список уже очищен в начале render
   
   // Если мы в корневой папке, рендерим смешанный список (папки + закладки)
   let mixedRootRendered = false;
@@ -1790,6 +1892,10 @@ async function render(orderOverride=null, prevRects=null){
 
   // Обновить вид мини-кнопок (✎/✕) с учётом Ctrl
   updateEditMiniButtonsIcon();
+  // Восстанавливаем скролл после перестановки
+  try{ if (isReorder && scroller) scroller.scrollTop = savedScroll; }catch{}
+  // Убираем временную фиксацию высоты
+  try{ if (isReorder && $list) $list.style.minHeight = ''; }catch{}
   if (prevRects) {
     animateFlip(prevRects);
   } else {
