@@ -1,3 +1,36 @@
+// Синхронизация порядка текущей папки с закладками Chrome (опционально)
+async function syncChromeOrderForCurrentFolder(liveOrder){
+  try{
+    // Флаг можно позже вынести в настройки; сейчас синхрон включён по умолчанию
+    const enable = true;
+    if (!enable) return;
+    // Карты соответствий: расширение -> Chrome ID
+    let mapFolderE2C = {}; let mapLinkE2C = {};
+    try{ const st = await chrome.storage.local.get(['map_folder_e2c','map_link_e2c']); mapFolderE2C = st?.['map_folder_e2c'] || {}; mapLinkE2C = st?.['map_link_e2c'] || {}; }catch{}
+
+    // Определяем parentId и набор элементов этой папки
+    let parentChromeId = null;
+    if (currentFolderId===null || currentFolderId===undefined){
+      parentChromeId = '1'; // Панель закладок
+    } else {
+      parentChromeId = mapFolderE2C[String(currentFolderId)] || null;
+    }
+    if (!parentChromeId) return;
+
+    // Собираем целевой порядок только для текущей папки
+    const targets = liveOrder.filter(x=> x && (x.type==='link' || x.type==='folder'));
+    let index = 0;
+    for (const item of targets){
+      const isFolder = item.type === 'folder';
+      const chromeId = isFolder ? mapFolderE2C[String(item.id)] : mapLinkE2C[String(item.id)];
+      if (!chromeId) { index++; continue; }
+      try{
+        await chrome.bookmarks.move(String(chromeId), { parentId: String(parentChromeId), index });
+      }catch(err){ console.warn('bookmarks.move failed', item, err); }
+      index++;
+    }
+  }catch(e){ console.warn('syncChromeOrderForCurrentFolder error', e); }
+}
 async function openFolderDeleteConfirm(folderId){
   try{
     const folders = await getFolders();
@@ -973,6 +1006,8 @@ function addDragHandlers(tile, items){
   let pointerDown=false, pointerId=null, startX=0, startY=0, started=false;
   let longPressTimer = 0;
   const LONG_PRESS_MS = 300;
+  // На всякий случай блокируем нативный dragstart браузера
+  tile.addEventListener('dragstart', (e)=>{ try{ e.preventDefault(); }catch{} });
   function ensureStart(){
     if (started) return; started=true;
     dragId = tile.dataset.id;
@@ -994,12 +1029,13 @@ function addDragHandlers(tile, items){
   }
   function onUp(e){
     if (!pointerDown) return; pointerDown=false; tile.releasePointerCapture?.(pointerId);
-    document.removeEventListener('pointermove', onMove, { capture:true }); document.removeEventListener('pointerup', onUp, { capture:true });
+    document.removeEventListener('pointermove', onMove, true); document.removeEventListener('pointerup', onUp, true);
     clearTimeout(longPressTimer);
     document.documentElement.classList.remove('dragging-global');
     // Сбросить возможные временные transition (делаем microtask, чтобы не глушить текущие transitionend)
     Promise.resolve().then(()=>{ try{ [...$list.children].forEach(el=>{ el.style.transition=""; el.style.willChange=""; delete el._dragFlipInit; }); }catch{} });
-    if (started){ tile.classList.remove('dragging'); lastDragEndedAt=Date.now(); if(liveOrder){ const toSave=liveOrder; liveOrder=null; dragId=null; const isRoot = (currentFolderId === null || currentFolderId === undefined); const p = isRoot ? persistRootMixedOrder(toSave) : persistReorderedSubset(toSave); p.finally(()=>{ 
+    if (started){ tile.classList.remove('dragging'); lastDragEndedAt=Date.now(); if(liveOrder){ const toSave=liveOrder; liveOrder=null; dragId=null; const isRoot = (currentFolderId === null || currentFolderId === undefined); const p = isRoot ? persistRootMixedOrder(toSave) : persistReorderedSubset(toSave); p.finally(async ()=>{ 
+      try{ await syncChromeOrderForCurrentFolder(toSave); }catch(e){ console.warn('syncChromeOrder failed', e); }
       // Финальный рендер не нужен: DOM уже соответствует toSave благодаря live-перестановкам.
       // Это устраняет мерцание при отпускании.
       // Автовыход из Move после дропа
@@ -1013,13 +1049,19 @@ function addDragHandlers(tile, items){
   }
   tile.addEventListener('pointerdown', (e)=>{
     if(e.button!==0) return;
-    // Не стартуем DnD, если клик пришёл по кнопке редактирования/удаления
-    if ((e.target && e.target.closest && e.target.closest('.edit-mini'))) return;
+    // Не стартуем DnD, если клик пришёл по кнопке редактирования/удаления или мини-чекбоксу
+    if ((e.target && e.target.closest && (e.target.closest('.edit-mini') || e.target.closest('.select-mini')))) return;
+    // Жёсткий сброс возможного хвоста предыдущего жеста
+    try{ document.removeEventListener('pointermove', onMove, true); document.removeEventListener('pointerup', onUp, true); }catch{}
+    clearTimeout(longPressTimer);
+    if (reorderRaf){ try{ cancelAnimationFrame(reorderRaf); }catch{} reorderRaf = 0; }
+    started=false; dragId=null;
+    document.documentElement.classList.remove('dragging-global');
     pointerDown=true; pointerId=e.pointerId; startX=e.clientX; startY=e.clientY;
     tile.setPointerCapture?.(pointerId);
     // Навешиваем обработчики в захваченном режиме, чтобы не терять событие
-    document.addEventListener('pointermove', onMove, { capture:true });
-    document.addEventListener('pointerup', onUp, { capture:true });
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', onUp, true);
     // Если режим Move не включен — включаем его по долгому удержанию
     if (!(editMode && moveMode)){
       clearTimeout(longPressTimer);
