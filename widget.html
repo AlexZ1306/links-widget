@@ -68,7 +68,7 @@
     body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
     .wrap{padding:14px}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:width .18s ease;display:flex;flex-direction:column;max-height:552px}
-    .card-body{padding:0 var(--pad) var(--pad);flex:1;min-height:0;overflow:auto;overflow-x:hidden;scrollbar-gutter: stable}
+    .card-body{padding:0 var(--pad) var(--pad);flex:1;min-height:0;overflow:auto;overflow-x:hidden;scrollbar-gutter: stable; isolation:isolate}
 
     /* Сетка плиток */
     #list{ display:grid; gap:var(--gap);
@@ -77,6 +77,32 @@
     }
     /* Пока идёт пересборка DOM скрываем содержимое, чтобы исключить флэш старых плиток */
     #list.rendering{ visibility:hidden }
+    /* Гладкое появление/исчезновение при смене вида */
+    #list{ transition: opacity .28s cubic-bezier(.3,0,.2,1); will-change: opacity, transform; backface-visibility:hidden; transform:translateZ(0); contain: paint }
+    #list.rendering{ opacity:0 }
+    /* Альтернативная анимация переключения вида (Alt/Shift при клике по переключателю) */
+    #list.switching-alt{ transition: transform .28s cubic-bezier(.2,.8,.2,1), opacity .26s cubic-bezier(.3,0,.2,1) }
+    #list.switching-alt.rendering{ transform: scale(.98); opacity:0 }
+    
+    /* WOW-вариант: лёгкая перспектива + зум и fade */
+    #list.switching-wow{ transform-origin: 50% 8%; perspective: 800px; transition: transform .36s cubic-bezier(.2,.8,.2,1), opacity .30s cubic-bezier(.3,0,.2,1) }
+    #list.switching-wow.rendering{ transform: perspective(800px) rotateX(6deg) scale(.96); opacity:0 }
+    
+    /* MORPH-вариант: содержимое плиток «сплющивается» в строки и наоборот */
+    #list.switching-morph .tile{ transition: border-radius .28s ease, height .28s ease, transform .28s ease }
+    #list.switching-morph.rendering .tile{ border-radius: 8px; }
+    /* Иконки и подписи дополнительно плавно меняют размер/отступы */
+    #list.switching-morph .favicon{ transition: width .28s ease, height .28s ease, border-radius .28s ease }
+    #list.switching-morph .caption{ transition: opacity .22s ease, margin-top .28s ease }
+    /* При уходе в list — «сплющиваем» плитку, уменьшаем иконку, убираем вертикальный зазор */
+    #list.switching-morph.list-view .tile{ height:auto }
+    #list.switching-morph.list-view.rendering .tile{ transform:translateY(-4px) }
+    #list.switching-morph.list-view .favicon{ width: var(--listIconSizePx, calc(var(--tileSize) * 0.40)); height: var(--listIconSizePx, calc(var(--tileSize) * 0.40)); border-radius:6px }
+    #list.switching-morph.list-view .caption{ margin-top:0; opacity:1 }
+    /* При уходе в grid — «надуваем» плитки и иконку обратно */
+    #list.switching-morph:not(.list-view) .tile{ height:calc(var(--tileSize) + var(--titleExtra)) }
+    #list.switching-morph:not(.list-view) .favicon{ width:calc(var(--tileSize) * 0.52); height:calc(var(--tileSize) * 0.52); border-radius:8px }
+    #list.switching-morph:not(.list-view) .caption{ margin-top: var(--titleGap) }
     .tile{
       position:relative; height:calc(var(--tileSize) + var(--titleExtra));
       border-radius:12px; background:transparent;
@@ -256,7 +282,7 @@
     .danger{background:color-mix(in srgb, var(--danger) 12%, transparent);border-color:var(--danger);color:var(--danger)}
 
     /* Футер */
-    .footerbar{background:var(--footer-bg);border-top:1px solid var(--border);padding:8px var(--pad);display:flex;align-items:center;justify-content:space-between}
+    .footerbar{background:var(--footer-bg);border-top:1px solid var(--border);padding:8px var(--pad);display:flex;align-items:center;justify-content:space-between; position:relative; z-index:5; transform:translateZ(0); backface-visibility:hidden}
     .copy{font-size:11px;color:var(--muted);opacity:.9;user-select:none;padding-left:2px}
     #copyrightLink{cursor:pointer}
     #copyrightLink:hover{opacity:1}
@@ -266,7 +292,7 @@
       transition:background .12s ease; padding:0 }
     .footbtn:hover{ background:var(--button-hover) }
     .footbtn.active{ background:var(--button-hover) }
-    .footbtn .ico{ width:18px;height:18px;background:currentColor;display:block;
+    .footbtn .ico{ width:18px;height:18px;background:currentColor;display:block; will-change:transform; transform:translateZ(0);
       -webkit-mask: var(--mask) no-repeat center/contain; mask: var(--mask) no-repeat center/contain; }
     .footbtn .ico.plus{
       --mask: url('data:image/svg+xml;utf8,\

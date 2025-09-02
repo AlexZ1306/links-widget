@@ -950,7 +950,7 @@ function openCopyrightTab(){
 function animateFlip(prev){
   const run = ()=>{
     const dragging = document.documentElement.classList.contains('dragging-global');
-    const duration = dragging ? 240 : 400;
+    const duration = dragging ? 260 : 520;
     [...$list.children].forEach(el=>{
       const id=el.dataset.id, a=prev.get(id); if(!a) return;
       const b=el.getBoundingClientRect();
@@ -3630,18 +3630,27 @@ if ($closeButton) {
 
 // Переключение вида в папке
 if ($viewToggle){
-  $viewToggle.addEventListener('click', async ()=>{
+  $viewToggle.addEventListener('click', async (e)=>{
     if (currentFolderId === null || currentFolderId === undefined) return;
     const mode = await getFolderViewMode(currentFolderId);
     const next = (mode === 'list') ? 'grid' : 'list';
+    // Захватываем текущую геометрию для FLIP и скрываем содержимое на время переключения
+    const prev = captureRects();
+    // Зафиксируем текущую высоту списка, чтобы не было схлопывания контейнера
+    try{ const r = $list.getBoundingClientRect(); if (r && isFinite(r.height) && r.height>0) { $list.style.minHeight = Math.ceil(r.height) + 'px'; } }catch{}
+    $list.classList.add('rendering');
+    // Эксперимент: MORPH-анимация содержимого плиток
+    $list.classList.add('switching-morph');
     await setFolderViewMode(currentFolderId, next);
-    // Обновить иконку и класс на контейнере
+    // Обновляем класс/иконку без пересборки, затем рендерим и проигрываем FLIP
     $list.classList.toggle('list-view', next === 'list');
     if ($viewToggleIcon){
       $viewToggleIcon.classList.toggle('view-list', next === 'list');
       $viewToggleIcon.classList.toggle('view-grid', next !== 'list');
     }
-    await render();
+    await render(null, prev);
+    // Снять экспериментальный класс и фиксацию высоты после кадра
+    requestAnimationFrame(()=>{ try{ $list.classList.remove('switching-morph'); $list.style.minHeight=''; }catch{} });
   });
 }
 
