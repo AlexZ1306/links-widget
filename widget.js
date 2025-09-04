@@ -4426,6 +4426,27 @@ function openSettingsPanel(){
   try { setCardWidthForCols(clampMaxCols(userMaxCols)); } catch {}
   $card.classList.add('freeze-size');
   $settingsFloat.removeAttribute('hidden');
+  // Автопрокрутка к началу панели настроек с учётом липкого заголовка папки
+  try{
+    setTimeout(()=>{
+      try{
+        const container = document.querySelector('.card-body');
+        if (!container){ $settingsFloat.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+        const header = document.getElementById('folderHeader');
+        let headerHeight = 0;
+        try{
+          if (header && getComputedStyle(header).display !== 'none' && header.offsetHeight > 0){
+            headerHeight = header.getBoundingClientRect().height;
+          }
+        }catch{}
+        const targetRect = $settingsFloat.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const deltaTop = targetRect.top - containerRect.top;
+        const desiredTop = container.scrollTop + deltaTop - headerHeight - 6;
+        container.scrollTo({ top: Math.max(0, desiredTop), behavior: 'smooth' });
+      }catch{}
+    }, 0);
+  }catch{}
   requestAnimationFrame(()=> $settingsFloat.classList.add('open'));
   if ($btnSettings) { $btnSettings.classList.add('active'); $btnSettings.setAttribute('aria-pressed','true'); }
   if ($btnAdd) { $btnAdd.classList.remove('active'); $btnAdd.setAttribute('aria-pressed','false'); }
