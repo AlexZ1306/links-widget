@@ -4,6 +4,7 @@ const FOLDER_OPACITY_KEY = "folderOpacity"; // user-facing 0..100
 const FAVICON_SATURATION_KEY = "faviconSaturation"; // user-facing 0..100
 const BASE_TILE_PX = 56;
 const MAX_COLS_KEY = "maxCols"; // user-facing 3..10
+const LIST_COLS_KEY = "listCols"; // user-facing 1..5
 const SHOW_TITLES_KEY = "showTitles"; // boolean, default false
 const BG_TRANSPARENT_KEY = "bgTransparent"; // boolean
 const FOOTER_TRANSPARENT_KEY = "footerTransparent"; // boolean
@@ -94,6 +95,18 @@ function applyMaxCols(userCols, {save=true, broadcast=true}={}){
   document.documentElement.style.setProperty('--cols', String(cols));
   if (save) chrome.storage.local.set({ [MAX_COLS_KEY]: cols });
   if (broadcast) try{ chrome.runtime.sendMessage({ type:'maxColsChanged', cols }); }catch{}
+}
+
+function clampListCols(v){
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(5, Math.max(1, n));
+}
+function applyListCols(userCols, {save=true, broadcast=true}={}){
+  const cols = clampListCols(userCols);
+  document.documentElement.style.setProperty('--listCols', String(cols));
+  if (save) chrome.storage.local.set({ [LIST_COLS_KEY]: cols });
+  if (broadcast) try{ chrome.runtime.sendMessage({ type:'listColsChanged', cols }); }catch{}
 }
 
 function applyShowTitles(on, {save=true, broadcast=true}={}){
@@ -282,8 +295,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const $foInput = document.getElementById('folderOpacityInput');
   const $fsRange = document.getElementById('faviconSaturationRange');
   const $fsInput = document.getElementById('faviconSaturationInput');
-  const $mcRange = document.getElementById('maxColsRange');
-  const $mcInput = document.getElementById('maxColsInput');
+  const $gridColsSelect = document.getElementById('gridColsSelect');
+  const $listColsSelect = document.getElementById('listColsSelect');
   const $showTitles = document.getElementById('showTitlesToggle');
   const $themeToggle = document.getElementById('themeToggle');
   const $themeIconToggle = document.getElementById('themeIconToggle');
@@ -325,7 +338,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   attachTip(document.querySelector('label[for="tileOpacityRange"]'), 'Opacity of bookmark tiles background.');
   attachTip(document.querySelector('label[for="folderOpacityRange"]'), 'Opacity of folder tiles background.');
   attachTip(document.querySelector('label[for="faviconSaturationRange"]'), 'Color saturation for favicons (0–100%).');
-  attachTip(document.querySelector('label[for="maxColsRange"]'), 'Maximum number of columns in the grid.');
+  attachTip(document.querySelector('label[for="gridColsSelect"]'), 'Maximum number of columns in the grid.');
+  attachTip(document.querySelector('label[for="listColsSelect"]'), 'Number of columns in list view (1–5).');
   attachTip(document.querySelector('label[for="showTitlesToggle"]'), 'Show text captions under tiles.');
   attachTip(document.querySelector('label[for="themeIconToggle"]'), 'Switch the extension toolbar icon theme.');
   attachTip(document.querySelector('label[for="themeToggle"]'), 'Switch between light and dark theme.');
@@ -357,9 +371,13 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
   const { [MAX_COLS_KEY]: mc=5 } = await chrome.storage.local.get(MAX_COLS_KEY);
   const mcUser = clampMaxCols(mc);
-  if ($mcRange) $mcRange.value = String(mcUser);
-  if ($mcInput) $mcInput.value = String(mcUser);
+  if ($gridColsSelect) $gridColsSelect.value = String(mcUser);
   applyMaxCols(mcUser, {save:false});
+
+  const { [LIST_COLS_KEY]: lc=1 } = await chrome.storage.local.get(LIST_COLS_KEY);
+  const lcUser = clampListCols(lc);
+  if ($listColsSelect) $listColsSelect.value = String(lcUser);
+  applyListCols(lcUser, {save:false});
 
   const { [SHOW_TITLES_KEY]: st=false } = await chrome.storage.local.get(SHOW_TITLES_KEY);
   if ($showTitles) $showTitles.checked = !!st;
@@ -449,22 +467,16 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   if ($imp) $imp.addEventListener('click', importLinks);
   if ($close) $close.addEventListener('click', ()=>{ window.close(); });
 
-  if ($mcRange) $mcRange.addEventListener('input', ()=>{
-    const v = clampMaxCols($mcRange.value);
-    if ($mcInput) $mcInput.value = String(v);
+  if ($gridColsSelect) $gridColsSelect.addEventListener('change', ()=>{
+    const v = clampMaxCols($gridColsSelect.value);
     applyMaxCols(v, {save:false, broadcast:true});
     markDirty();
   });
-  function parseMaxColsField(){
-    const raw = ($mcInput?.value ?? '').trim(); if(raw==='') return null; const n=Number(raw); if(!Number.isFinite(n)) return null; return clampMaxCols(n);
-  }
-  function commitMaxCols(){ let v=parseMaxColsField(); if(v==null) v=5; if($mcRange) $mcRange.value=String(v); if($mcInput) $mcInput.value=String(v); applyMaxCols(v,{save:false, broadcast:true}); markDirty(); }
-  if ($mcInput){
-    $mcInput.addEventListener('input', ()=>{});
-    $mcInput.addEventListener('change', commitMaxCols);
-    $mcInput.addEventListener('blur', commitMaxCols);
-    $mcInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') commitMaxCols(); });
-  }
+  if ($listColsSelect) $listColsSelect.addEventListener('change', ()=>{
+    const v = clampListCols($listColsSelect.value);
+    applyListCols(v, {save:false, broadcast:true});
+    markDirty();
+  });
 
   if ($showTitles){
     $showTitles.addEventListener('change', ()=>{
@@ -500,7 +512,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       [TILE_OPACITY_KEY]: clampOpacityPercent(($opInput?.value ?? $opRange?.value) || 100),
       [FOLDER_OPACITY_KEY]: clampOpacityPercent(($foInput?.value ?? $foRange?.value) || 100),
       [FAVICON_SATURATION_KEY]: clampSaturationPercent(($fsInput?.value ?? $fsRange?.value) || 100),
-      [MAX_COLS_KEY]: clampMaxCols(($mcInput?.value ?? $mcRange?.value) || 5),
+      [MAX_COLS_KEY]: clampMaxCols(($gridColsSelect?.value) || 5),
+      [LIST_COLS_KEY]: clampListCols(($listColsSelect?.value) || 1),
       [SHOW_TITLES_KEY]: !!($showTitles?.checked),
       [THEME_KEY]: $themeToggle?.checked ? 'light' : 'dark',
       [ICON_THEME_KEY]: $themeIconToggle?.checked ? 'light' : 'dark',
@@ -520,6 +533,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       [FOLDER_OPACITY_KEY]: 100,
       [FAVICON_SATURATION_KEY]: 100,
       [MAX_COLS_KEY]: 5,
+      [LIST_COLS_KEY]: 1,
       [SHOW_TITLES_KEY]: false,
       [THEME_KEY]: 'dark',
       [ICON_THEME_KEY]: 'dark',
@@ -529,6 +543,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const fo = clampOpacityPercent(st[FOLDER_OPACITY_KEY]);
     const fs = clampSaturationPercent(st[FAVICON_SATURATION_KEY]);
     const mc = clampMaxCols(st[MAX_COLS_KEY]);
+    const lc = clampListCols(st[LIST_COLS_KEY]);
     const on = !!st[SHOW_TITLES_KEY];
     const theme = st[THEME_KEY] || 'dark';
     const iconTheme = st[ICON_THEME_KEY] || 'dark';
@@ -537,7 +552,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if ($opRange) $opRange.value = String(op); if ($opInput) $opInput.value = String(op); applyTileOpacityUser(op,{save:false, broadcast:true});
     if ($foRange) $foRange.value = String(fo); if ($foInput) $foInput.value = String(fo); applyFolderOpacityUser(fo,{save:false, broadcast:true});
     if ($fsRange) $fsRange.value = String(fs); if ($fsInput) $fsInput.value = String(fs); applyFaviconSaturationUser(fs,{save:false, broadcast:true});
-    if ($mcRange) $mcRange.value = String(mc); if ($mcInput) $mcInput.value = String(mc); applyMaxCols(mc,{save:false, broadcast:true});
+    if ($gridColsSelect) $gridColsSelect.value = String(mc); applyMaxCols(mc,{save:false, broadcast:true});
+    if ($listColsSelect) $listColsSelect.value = String(lc); applyListCols(lc,{save:false, broadcast:true});
     if ($showTitles) $showTitles.checked = on; applyShowTitles(on,{save:false, broadcast:true});
     if ($themeToggle) $themeToggle.checked = theme === 'light'; applyTheme(theme,{save:false, broadcast:true});
     if ($themeIconToggle) $themeIconToggle.checked = iconTheme === 'light'; setActionIconByTheme(iconTheme);

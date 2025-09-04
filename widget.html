@@ -693,7 +693,7 @@
     /* Режим списка внутри папки */
     #list.list-view{
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(var(--listCols, 1), 1fr);
       gap: 0px;
       min-width: 0;
     }
@@ -826,9 +826,27 @@
               <input id="faviconSaturationInput" type="number" min="0" max="100" step="1" value="100" aria-label="Favicon saturation percent number" />
             </div>
             <div class="tile-size-row">
-              <label for="maxColsRange">Max columns</label>
-              <input id="maxColsRange" type="range" min="3" max="10" step="1" value="5" aria-label="Max columns" />
-              <input id="maxColsInput" type="number" min="3" max="10" step="1" value="5" aria-label="Max columns number" />
+              <label for="gridColsSelect">Columns Grid</label>
+              <select id="gridColsSelect" aria-label="Grid columns">
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+            <div class="tile-size-row">
+              <label for="listColsSelect">Columns List</label>
+              <select id="listColsSelect" aria-label="List columns">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
             </div>
             <div class="tile-size-row">
               <label for="rootViewMode">Root view</label>

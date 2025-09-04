@@ -246,8 +246,8 @@ const $faviconSaturationRange = document.getElementById("faviconSaturationRange"
 const $faviconSaturationInput = document.getElementById("faviconSaturationInput");
 const $tileGapRange = document.getElementById("tileGapRange");
 const $tileGapInput = document.getElementById("tileGapInput");
-const $maxColsRange = document.getElementById("maxColsRange");
-const $maxColsInput = document.getElementById("maxColsInput");
+const $gridColsSelect = document.getElementById("gridColsSelect");
+const $listColsSelect = document.getElementById("listColsSelect");
 const $rootViewMode = document.getElementById("rootViewMode");
 const $folderDefaultViewMode = document.getElementById("folderDefaultViewMode");
 const $footerTransparent = document.getElementById("footerTransparent");
@@ -1099,11 +1099,12 @@ function reorderByCursor(clientX, clientY, items){
   const tilePx = parseInt(rs.getPropertyValue('--tileSize')) || 56;
   const gapPx  = parseInt(rs.getPropertyValue('--gap')) || 10;
   const isList = $list.classList.contains('list-view');
-  const cols   = isList ? 1 : (parseInt(getComputedStyle($list).getPropertyValue('--cols')) || 5);
+  const listColsCss = isList ? (parseInt(getComputedStyle($list).getPropertyValue('--listCols')) || 1) : 1;
+  const isListSingle = isList && listColsCss <= 1;
+  const cols   = isList ? listColsCss : (parseInt(getComputedStyle($list).getPropertyValue('--cols')) || 5);
 
-  // Отдельная логика для list-view: находим первую плитку,
-  // середина которой ниже курсора, и вставляем перед ней
-  if (isList){
+  // Отдельная логика для list-view при 1 колонке: вертикальная перестановка
+  if (isListSingle){
     // FLIP-подход как для сетки: рассчитываем индекс строки и используем центр-правило
     const gridRect = $list.getBoundingClientRect();
     const localY = clientY - gridRect.top;
@@ -1128,30 +1129,20 @@ function reorderByCursor(clientX, clientY, items){
   const firstRect = tiles[0].getBoundingClientRect();
   const cellW = isList ? firstRect.width : tilePx;
   const cellH = isList ? (parseInt(getComputedStyle(tiles[0]).height) || Math.round(firstRect.height)) : (tilePx + (window.userShowTitles ? (parseInt(rs.getPropertyValue('--titleGap')) + parseInt(rs.getPropertyValue('--titleH'))) : 0));
-  // Для списка считаем шаг ровно по высоте элемента без учёта gap,
-  // иначе при небольшой погрешности координат возникает скачок на несколько строк
-  const strideX = (isList ? cellW : (cellW + gapPx));
+  // Шаги по сетке: для list multi-columns gap = 0, поэтому strideX = cellW
+  const strideX = isList ? cellW : (cellW + gapPx);
   const strideY = isList ? cellH : (cellH + gapPx);
-  const col = isList ? 0 : Math.max(0, Math.min(cols - 1, Math.floor((localX + gapPx/2) / strideX)));
-  // В списке не добавляем половину gap при расчёте индекса строки
-  const row = isList ? Math.max(0, Math.floor(localY / strideY)) : Math.max(0, Math.floor((localY + gapPx/2) / strideY));
-  // Индекс цели из локальных координат (для list-view учёт скролла уже заложен в gridRect/top)
-  let targetIndex = isList ? row : (row * cols + col);
+  const col = Math.max(0, Math.min(cols - 1, Math.floor((localX + (isList?0:gapPx/2)) / strideX)));
+  const row = Math.max(0, Math.floor((localY + (isList?0:gapPx/2)) / strideY));
+  let targetIndex = (row * cols + col);
   if (targetIndex > tiles.length) targetIndex = tiles.length;
 
-  // Центр-правило: в списке используем ось Y, в сетке — ось X
+  // Центр-правило: для list multi-columns и grid используем ось X
   let to = targetIndex;
-  if (isList){
-    const cellTop = row * strideY;
-    const centerY = cellTop + cellH/2;
-    const HYST_Y = 2; // минимальный гистерезис для точности
-    if (localY > centerY + HYST_Y) to = targetIndex + 1;
-  } else {
-    const cellLeft = col * strideX;
-    const centerX = cellLeft + cellW/2;
-    const HYST_X = 8;
-    if (localX > centerX + HYST_X) to = targetIndex + 1;
-  }
+  const cellLeft = col * strideX;
+  const centerX = cellLeft + cellW/2;
+  const HYST_X = 8;
+  if (localX > centerX + HYST_X) to = targetIndex + 1;
   to = Math.max(0, Math.min(order.length, to));
   let toAdj = to;
   if (from < to) toAdj -= 1;
@@ -2081,18 +2072,19 @@ function gatherControlsState(){
   const folderOpacity = clampOpacityPercent($folderOpacityInput?.value ?? $folderOpacityRange?.value ?? 60);
   const tileGapPercent = clampGapPercent($tileGapInput?.value ?? $tileGapRange?.value ?? 100);
   const faviconSaturation = clampSaturationPercent($faviconSaturationInput?.value ?? $faviconSaturationRange?.value ?? 100);
-  const maxCols = clampMaxCols($maxColsInput?.value ?? $maxColsRange?.value ?? 5);
+  const maxCols = clampMaxCols($gridColsSelect?.value ?? 5);
+  const listCols = clampListCols($listColsSelect?.value ?? 1);
   const showTitles = !!($showTitlesInline?.checked);
   const showChromeFolders = !!($showChromeFolders?.checked);
   const bgTransparent = !!($widgetBgTransparent?.checked);
   const footerTransparent = !!($footerTransparent?.checked);
   const theme = $themeToggleInline?.checked ? 'light' : 'dark';
   const iconTheme = $themeIconToggleInline?.checked ? 'light' : 'dark';
-  return { tilePercent, listIconPercent, rootViewMode, folderDefaultViewMode, tileOpacity, folderOpacity, tileGapPercent, faviconSaturation, maxCols, showTitles, showChromeFolders, bgTransparent, footerTransparent, theme, iconTheme };
+  return { tilePercent, listIconPercent, rootViewMode, folderDefaultViewMode, tileOpacity, folderOpacity, tileGapPercent, faviconSaturation, maxCols, listCols, showTitles, showChromeFolders, bgTransparent, footerTransparent, theme, iconTheme };
 }
 function shallowEqualSettings(a,b){
   if(!a||!b) return false;
-  const keys=["tilePercent","listIconPercent","rootViewMode","folderDefaultViewMode","tileOpacity","folderOpacity","tileGapPercent","faviconSaturation","maxCols","showTitles","showChromeFolders","bgTransparent","footerTransparent","theme","iconTheme"];
+  const keys=["tilePercent","listIconPercent","rootViewMode","folderDefaultViewMode","tileOpacity","folderOpacity","tileGapPercent","faviconSaturation","maxCols","listCols","showTitles","showChromeFolders","bgTransparent","footerTransparent","theme","iconTheme"];
   return keys.every(k => (a[k] ?? null) === (b[k] ?? null));
 }
 async function commitSettings(){
@@ -2106,6 +2098,7 @@ async function commitSettings(){
     [FOLDER_OPACITY_KEY]: s.folderOpacity,
     [FAVICON_SATURATION_KEY]: s.faviconSaturation,
     [MAX_COLS_KEY]: s.maxCols,
+    [LIST_COLS_KEY]: s.listCols,
     [SHOW_TITLES_KEY]: !!s.showTitles,
     [SHOW_CHROME_FOLDERS_KEY]: !!s.showChromeFolders,
     [BG_TRANSPARENT_KEY]: !!s.bgTransparent,
@@ -2116,6 +2109,7 @@ async function commitSettings(){
   applyTheme(s.theme, {save:false});
   setActionIconByTheme(s.iconTheme);
   applyListIconPercentUser(s.listIconPercent, {save:false});
+  applyListCols(s.listCols, {save:false});
   settingsBaseline = s;
   markDirty(false);
   try{ await render(); }catch{}
@@ -2149,6 +2143,7 @@ async function revertSettings(){
     tileGapPercent: clampGapPercent(st[TILE_GAP_PERCENT_KEY] ?? 100),
     faviconSaturation: clampSaturationPercent(st[FAVICON_SATURATION_KEY]),
     maxCols: clampMaxCols(st[MAX_COLS_KEY]),
+    listCols: clampListCols((await chrome.storage.local.get(LIST_COLS_KEY))?.[LIST_COLS_KEY] ?? 1),
     showTitles: !!st[SHOW_TITLES_KEY],
     showChromeFolders: !!st[SHOW_CHROME_FOLDERS_KEY],
     bgTransparent: !!st[BG_TRANSPARENT_KEY],
@@ -2165,6 +2160,7 @@ async function revertSettings(){
   applyFolderOpacityUser(s.folderOpacity, {save:false});
   applyFaviconSaturationUser(s.faviconSaturation, {save:false});
   applyMaxCols(s.maxCols, {save:false, recalcWidth: !isSettingsOpen()});
+  applyListCols(s.listCols, {save:false});
   applyShowTitles(s.showTitles, {save:false});
   applyWidgetBgTransparency(s.bgTransparent, {save:false});
   applyFooterTransparency(s.footerTransparent, {save:false});
@@ -2187,8 +2183,8 @@ async function revertSettings(){
   if ($tileGapInput) $tileGapInput.value = String(s.tileGapPercent);
   if ($faviconSaturationRange) $faviconSaturationRange.value = String(s.faviconSaturation);
   if ($faviconSaturationInput) $faviconSaturationInput.value = String(s.faviconSaturation);
-  if ($maxColsRange) $maxColsRange.value = String(s.maxCols);
-  if ($maxColsInput) $maxColsInput.value = String(s.maxCols);
+  if ($gridColsSelect) $gridColsSelect.value = String(s.maxCols);
+  if ($listColsSelect) $listColsSelect.value = String(s.listCols);
   if ($showTitlesInline) $showTitlesInline.checked = !!s.showTitles;
   if ($showChromeFolders) $showChromeFolders.checked = !!s.showChromeFolders;
   if ($themeIconToggleInline) $themeIconToggleInline.checked = (s.iconTheme === 'light');
@@ -3951,6 +3947,7 @@ const TILE_GAP_DEFAULT = 50; // 50% = базовый отступ
 const BG_TRANSPARENT_KEY = "bgTransparent"; // boolean
 const FOOTER_TRANSPARENT_KEY = "footerTransparent"; // boolean
 const MAX_COLS_KEY = "maxCols"; // user-facing 3..10
+const LIST_COLS_KEY = "listCols"; // user-facing 1..5
 const SHOW_TITLES_KEY = "showTitles"; // boolean
 const BASE_TILE_PX = 56;
 // внутренний комфортный интервал (оставляем как было ранее 70..140)
@@ -4058,6 +4055,18 @@ function applyMaxCols(cols, {save=true, recalcWidth=true}={}){
   } else if (recalcWidth){
     restoreWidthByLinks();
   }
+}
+
+function clampListCols(v){
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(5, Math.max(1, n));
+}
+let userListCols = 1;
+function applyListCols(cols, {save=true}={}){
+  userListCols = clampListCols(cols);
+  document.documentElement.style.setProperty('--listCols', String(userListCols));
+  if (save) chrome.storage.local.set({ [LIST_COLS_KEY]: userListCols }).catch(()=>{});
 }
 
 function applyWidgetBgTransparency(on, {save=true}={}){
@@ -4322,8 +4331,12 @@ try{
     if (msg.type === 'maxColsChanged'){
       const cols = clampMaxCols(msg.cols);
       applyMaxCols(cols, {save:true, recalcWidth: !isSettingsOpen()});
-      if ($maxColsRange) $maxColsRange.value = String(cols);
-      if ($maxColsInput) $maxColsInput.value = String(cols);
+      if ($gridColsSelect) $gridColsSelect.value = String(cols);
+    }
+    if (msg.type === 'listColsChanged'){
+      const cols = clampListCols(msg.cols);
+      applyListCols(cols, {save:true});
+      if ($listColsSelect) $listColsSelect.value = String(cols);
     }
     if (msg.type === 'footerTransparencyChanged'){
       applyFooterTransparency(!!msg.on, {save:false});
@@ -4386,8 +4399,12 @@ async function syncSettingsInputsFromStorage(){
   try{
     const st = await chrome.storage.local.get(MAX_COLS_KEY);
     const mc = clampMaxCols(st?.[MAX_COLS_KEY] ?? 5);
-    if ($maxColsRange) $maxColsRange.value = String(mc);
-    if ($maxColsInput) $maxColsInput.value = String(mc);
+    if ($gridColsSelect) $gridColsSelect.value = String(mc);
+  }catch{}
+  try{
+    const st = await chrome.storage.local.get(LIST_COLS_KEY);
+    const lc = clampListCols(st?.[LIST_COLS_KEY] ?? 1);
+    if ($listColsSelect) $listColsSelect.value = String(lc);
   }catch{}
   try{
     const st = await chrome.storage.local.get(BG_TRANSPARENT_KEY);
@@ -4461,7 +4478,8 @@ function openSettingsPanel(){
     attach('label[for="tileOpacityRange"]', 'Opacity of bookmark tiles background.');
     attach('label[for="folderOpacityRange"]', 'Opacity of folder tiles background.');
     attach('label[for="faviconSaturationRange"]', 'Color saturation for favicons (0–100%).');
-    attach('label[for="maxColsRange"]', 'Maximum number of columns in the grid.');
+    attach('label[for="gridColsSelect"]', 'Maximum number of columns in the grid.');
+    attach('label[for=\"listColsSelect\"]', 'Number of columns in list view (1–5).');
     attach('label[for="rootViewMode"]', 'Default view for root (main screen).');
     attach('label[for="folderDefaultViewMode"]', 'Default view for new folders.');
     attach('label[for="showTitles"]', 'Show text captions under tiles.');
@@ -4612,6 +4630,8 @@ async function exportLinks(){
       maxCols = clampMaxCols(st?.[MAX_COLS_KEY] ?? ($maxColsInput?.value ?? $maxColsRange?.value ?? 5));
     }catch{}
     let showTitles = false;
+    let listCols = 1;
+    try{ const st = await chrome.storage.local.get(LIST_COLS_KEY); listCols = clampListCols(st?.[LIST_COLS_KEY] ?? 1); }catch{}
     try{
       const st = await chrome.storage.local.get(SHOW_TITLES_KEY);
       showTitles = !!(st?.[SHOW_TITLES_KEY]);
@@ -4644,6 +4664,7 @@ async function exportLinks(){
         autoFavicon,
         faviconSaturation,
         maxCols,
+        listCols,
         showTitles,
         listIconPercent,
         rootViewMode,
@@ -4769,8 +4790,12 @@ function importLinks(){
           if (typeof settings.maxCols !== 'undefined'){
             const mc = clampMaxCols(settings.maxCols);
             applyMaxCols(mc, {save:true, recalcWidth:false});
-            if ($maxColsRange) $maxColsRange.value = String(mc);
-            if ($maxColsInput) $maxColsInput.value = String(mc);
+            if ($gridColsSelect) $gridColsSelect.value = String(mc);
+          }
+          if (typeof settings.listCols !== 'undefined'){
+            const lc = clampListCols(settings.listCols);
+            applyListCols(lc, {save:true});
+            if ($listColsSelect) $listColsSelect.value = String(lc);
           }
           if (typeof settings.listIconPercent !== 'undefined'){
             const lp = clampUserPercent(settings.listIconPercent);
@@ -4993,19 +5018,19 @@ if ($tileGapInput){
   $tileGapInput.addEventListener('blur', commit);
   $tileGapInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') commit(); });
 }
-if ($maxColsRange){
-  $maxColsRange.addEventListener('input', ()=>{
-    const v = clampMaxCols($maxColsRange.value);
-    if ($maxColsInput) $maxColsInput.value = String(v);
+if ($gridColsSelect){
+  $gridColsSelect.addEventListener('change', ()=>{
+    const v = clampMaxCols($gridColsSelect.value);
     applyMaxCols(v, {save:false, recalcWidth: !isSettingsOpen()});
     if (settingsBaseline) markDirty(!shallowEqualSettings(gatherControlsState(), settingsBaseline));
   });
 }
-if ($maxColsInput){
-  const commit=()=>{ let v=($maxColsInput.value||'').trim(); v=v===''?5:Number(v); v=clampMaxCols(v); $maxColsInput.value=String(v); if($maxColsRange) $maxColsRange.value=String(v); applyMaxCols(v,{save:false, recalcWidth: !isSettingsOpen()}); if (settingsBaseline) markDirty(!shallowEqualSettings(gatherControlsState(), settingsBaseline)); };
-  $maxColsInput.addEventListener('change', commit);
-  $maxColsInput.addEventListener('blur', commit);
-  $maxColsInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') commit(); });
+if ($listColsSelect){
+  $listColsSelect.addEventListener('change', ()=>{
+    const v = clampListCols($listColsSelect.value);
+    applyListCols(v, {save:false});
+    if (settingsBaseline) markDirty(!shallowEqualSettings(gatherControlsState(), settingsBaseline));
+  });
 }
 if ($footerTransparent){
   $footerTransparent.addEventListener('change', ()=>{
